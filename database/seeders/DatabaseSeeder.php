@@ -18,6 +18,8 @@ class DatabaseSeeder extends Seeder
             UserSeeder::class,
             ApprovalSeeder::class,
             ConstructionWorkSeeder::class,
+            CustomerProjectSeeder::class,
+            LegalRequestSeeder::class,
         ]);
     }
 }
