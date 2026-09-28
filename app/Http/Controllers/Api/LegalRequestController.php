@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\LegalRequest;
+use App\Models\LegalAttachment;
+use App\Models\LegalTimelineEvent;
 use Illuminate\Http\Request;
 
 class LegalRequestController extends Controller
@@ -87,5 +89,90 @@ class LegalRequestController extends Controller
         });
 
         return response()->json($formatted);
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'unit' => 'required|string',
+            'submittedDate' => 'required|string',
+            'category' => 'required|string',
+            'priority' => 'required|string',
+            'title' => 'required|string',
+            'description' => 'required|string',
+            'purpose' => 'nullable|string',
+            'targetDate' => 'required|string',
+            'pic' => 'required|string',
+            'notes' => 'nullable|string',
+            'attachments' => 'nullable|array',
+            'isDraft' => 'nullable|boolean',
+        ]);
+
+        $year = date('Y');
+        $randomSeq = str_pad((string) rand(1, 999), 3, '0', STR_PAD_LEFT);
+        $requestCode = "LGL-{$year}-{$randomSeq}";
+        $id = (string) (LegalRequest::max('id') ? ((int) LegalRequest::max('id') + 1) : rand(100, 9999));
+
+        $status = $request->boolean('isDraft') ? 'draft' : 'waiting_review';
+        $currentStage = $request->boolean('isDraft') ? 'Draft' : 'Pengajuan Diterima';
+
+        $legalRequest = LegalRequest::create([
+            'id' => $id,
+            'request_code' => $requestCode,
+            'submitted_at' => $validated['submittedDate'],
+            'unit' => $validated['unit'],
+            'category' => $validated['category'],
+            'title' => $validated['title'],
+            'applicant' => $validated['pic'],
+            'applicant_email' => strtolower(str_replace(' ', '', $validated['pic'])) . '@sscworks.com',
+            'priority' => strtolower($validated['priority']),
+            'target_date' => $validated['targetDate'],
+            'current_stage' => $currentStage,
+            'status' => $status,
+            'description' => $validated['description'],
+            'counterparty' => null,
+            'estimated_value' => null,
+        ]);
+
+        // Tambahkan event timeline awal
+        LegalTimelineEvent::create([
+            'id' => (string) rand(1000, 99999),
+            'request_id' => $id,
+            'stage' => 'Pengajuan Diterima',
+            'actor' => $validated['pic'],
+            'occurred_at' => date('d M Y, H:i'),
+            'state' => 'done',
+            'note' => $validated['notes'] ?? 'Legal request submitted.',
+        ]);
+
+        LegalTimelineEvent::create([
+            'id' => (string) rand(1000, 99999),
+            'request_id' => $id,
+            'stage' => 'Review Tim Legal',
+            'actor' => 'Legal Officer',
+            'occurred_at' => null,
+            'state' => 'current',
+        ]);
+
+        // Simpan Lampiran jika ada
+        if (!empty($validated['attachments'])) {
+            foreach ($validated['attachments'] as $att) {
+                LegalAttachment::create([
+                    'id' => (string) rand(1000, 99999),
+                    'request_id' => $id,
+                    'file_name' => $att['name'] ?? 'attachment.pdf',
+                    'file_type' => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                    'file_size_kb' => $att['sizeKb'] ?? 100,
+                    'uploaded_by' => $validated['pic'],
+                    'uploaded_at' => date('Y-m-d'),
+                ]);
+            }
+        }
+
+        return response()->json([
+            'requestCode' => $requestCode,
+            'submittedAt' => date('c'),
+            'message' => 'New Legal Request stored successfully in MySQL database.'
+        ], 201);
     }
 }

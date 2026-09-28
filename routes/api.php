@@ -15,6 +15,9 @@ Route::get('/user', function (Request $request) {
 Route::get('/approvals', [ApprovalController::class, 'index']);
 Route::get('/construction-works', [ConstructionController::class, 'index']);
 Route::get('/customer-projects', [CustomerProjectController::class, 'index']);
+
 Route::get('/legal-requests', [LegalRequestController::class, 'index']);
+Route::post('/legal-requests', [LegalRequestController::class, 'store']);
+
 Route::post('/auth/signin', [AuthController::class, 'signIn']);
 Route::get('/auth/users', [AuthController::class, 'me']);
