@@ -7,6 +7,7 @@ use App\Models\LegalRequest;
 use App\Models\LegalAttachment;
 use App\Models\LegalTimelineEvent;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class LegalRequestController extends Controller
 {
@@ -93,7 +94,7 @@ class LegalRequestController extends Controller
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
+        $validator = Validator::make($request->all(), [
             'unit' => 'required|string',
             'submittedDate' => 'required|string',
             'category' => 'required|string',
@@ -108,10 +109,21 @@ class LegalRequestController extends Controller
             'isDraft' => 'nullable|boolean',
         ]);
 
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Validation error',
+                'messages' => $validator->errors()->all()
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
         $year = date('Y');
         $randomSeq = str_pad((string) rand(1, 999), 3, '0', STR_PAD_LEFT);
         $requestCode = "LGL-{$year}-{$randomSeq}";
-        $id = (string) (LegalRequest::max('id') ? ((int) LegalRequest::max('id') + 1) : rand(100, 9999));
+        
+        $maxId = LegalRequest::selectRaw('MAX(CAST(id AS UNSIGNED)) as max_id')->value('max_id');
+        $id = (string) ($maxId ? ((int)$maxId + 1) : rand(100, 9999));
 
         $status = $request->boolean('isDraft') ? 'draft' : 'waiting_review';
         $currentStage = $request->boolean('isDraft') ? 'Draft' : 'Pengajuan Diterima';
@@ -134,7 +146,6 @@ class LegalRequestController extends Controller
             'estimated_value' => null,
         ]);
 
-        // Tambahkan event timeline awal
         LegalTimelineEvent::create([
             'id' => (string) rand(1000, 99999),
             'request_id' => $id,
@@ -154,7 +165,6 @@ class LegalRequestController extends Controller
             'state' => 'current',
         ]);
 
-        // Simpan Lampiran jika ada
         if (!empty($validated['attachments'])) {
             foreach ($validated['attachments'] as $att) {
                 LegalAttachment::create([
