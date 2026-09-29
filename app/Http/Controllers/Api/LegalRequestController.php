@@ -6,6 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\LegalRequest;
 use App\Models\LegalAttachment;
 use App\Models\LegalTimelineEvent;
+use App\Models\Approval;
+use App\Models\ApprovalStage;
+use App\Models\ApprovalHistory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -178,6 +181,58 @@ class LegalRequestController extends Controller
                 ]);
             }
         }
+
+        // ─── Auto-create global Approval Center record ───────────────────
+        if (!$request->boolean('isDraft')) {
+            $approvalId = $requestCode; // gunakan kode request yang sama sbg ID approval
+
+            Approval::create([
+                'id'              => $approvalId,
+                'module'          => 'Legal',
+                'request'         => $validated['title'],
+                'summary'         => $validated['description'],
+                'unit'            => $validated['unit'],
+                'submitted_by'    => $validated['pic'],
+                'submitted_by_id' => strtolower(str_replace(' ', '', $validated['pic'])),
+                'submitted_date'  => $validated['submittedDate'],
+                'period'          => date('M Y'),
+                'amount'          => null,
+                'amount_label'    => '-',
+                'current_stage'   => 1,
+                'priority'        => $validated['priority'],
+                'status'          => 'Waiting',
+                'due_date'        => $validated['targetDate'],
+                'notes'           => $validated['notes'] ?? null,
+            ]);
+
+            // Tahapan approval legal
+            $stages = [
+                ['order' => 1, 'name' => 'Review Tim Legal',      'role' => 'Legal Officer'],
+                ['order' => 2, 'name' => 'Persetujuan Manager',    'role' => 'Manager Legal'],
+                ['order' => 3, 'name' => 'Persetujuan Direktur',   'role' => 'Direktur'],
+            ];
+            foreach ($stages as $stg) {
+                ApprovalStage::create([
+                    'approval_id' => $approvalId,
+                    'order'       => $stg['order'],
+                    'name'        => $stg['name'],
+                    'role'        => $stg['role'],
+                    'approver'    => null,
+                    'unit_scope'  => $validated['unit'],
+                ]);
+            }
+
+            // Riwayat awal
+            ApprovalHistory::create([
+                'approval_id' => $approvalId,
+                'actor'       => $validated['pic'],
+                'role'        => 'Pemohon',
+                'action'      => 'Pengajuan Dikirim',
+                'note'        => 'Legal request berhasil diajukan dan menunggu review.',
+                'at'          => date('d M Y, H:i'),
+            ]);
+        }
+        // ─────────────────────────────────────────────────────────────────
 
         return response()->json([
             'requestCode' => $requestCode,

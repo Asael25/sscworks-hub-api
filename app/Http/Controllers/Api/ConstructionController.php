@@ -4,7 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ConstructionWork;
+use App\Models\Approval;
+use App\Models\ApprovalStage;
+use App\Models\ApprovalHistory;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class ConstructionController extends Controller
 {
@@ -88,4 +92,104 @@ class ConstructionController extends Controller
 
         return response()->json($formatted);
     }
+
+    public function store(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name'           => 'required|string',
+            'unit'           => 'required|string',
+            'location'       => 'required|string',
+            'vendor'         => 'required|string',
+            'contractNumber' => 'required|string',
+            'pic'            => 'required|string',
+            'startDate'      => 'required|string',
+            'targetDate'     => 'required|string',
+            'budget'         => 'nullable|numeric',
+            'notes'          => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error'    => 'Validation error',
+                'messages' => $validator->errors()->all(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        $year = date('Y');
+        $seq  = str_pad((string) rand(1, 9999), 4, '0', STR_PAD_LEFT);
+        $workId = "KI-{$year}-{$seq}";
+
+        $work = ConstructionWork::create([
+            'id'              => $workId,
+            'name'            => $validated['name'],
+            'unit'            => $validated['unit'],
+            'location'        => $validated['location'],
+            'vendor'          => $validated['vendor'],
+            'contract_number' => $validated['contractNumber'],
+            'pic'             => $validated['pic'],
+            'start_date'      => $validated['startDate'],
+            'target_date'     => $validated['targetDate'],
+            'period'          => date('M Y'),
+            'target'          => 0,
+            'actual'          => 0,
+            'status'          => 'Waiting Approval',
+            'budget'          => $validated['budget'] ?? 0,
+        ]);
+
+        // ─── Auto-create global Approval Center record ───────────────────
+        $approvalId = $workId;
+
+        Approval::create([
+            'id'              => $approvalId,
+            'module'          => 'Konstruksi Internal',
+            'request'         => $validated['name'],
+            'summary'         => "Pekerjaan konstruksi di {$validated['location']} oleh {$validated['vendor']}.",
+            'unit'            => $validated['unit'],
+            'submitted_by'    => $validated['pic'],
+            'submitted_by_id' => strtolower(str_replace(' ', '', $validated['pic'])),
+            'submitted_date'  => date('d M Y'),
+            'period'          => date('M Y'),
+            'amount'          => $validated['budget'] ?? null,
+            'amount_label'    => $validated['budget'] ? 'Rp ' . number_format($validated['budget'], 0, ',', '.') : '-',
+            'current_stage'   => 1,
+            'priority'        => 'Medium',
+            'status'          => 'Waiting',
+            'due_date'        => $validated['targetDate'],
+            'notes'           => $validated['notes'] ?? null,
+        ]);
+
+        $stages = [
+            ['order' => 1, 'name' => 'Review Manajer Proyek',   'role' => 'Manajer Proyek'],
+            ['order' => 2, 'name' => 'Persetujuan Direktur',    'role' => 'Direktur'],
+        ];
+        foreach ($stages as $stg) {
+            ApprovalStage::create([
+                'approval_id' => $approvalId,
+                'order'       => $stg['order'],
+                'name'        => $stg['name'],
+                'role'        => $stg['role'],
+                'approver'    => null,
+                'unit_scope'  => $validated['unit'],
+            ]);
+        }
+
+        ApprovalHistory::create([
+            'approval_id' => $approvalId,
+            'actor'       => $validated['pic'],
+            'role'        => 'PIC Proyek',
+            'action'      => 'Pengajuan Dikirim',
+            'note'        => 'Pekerjaan konstruksi internal berhasil diajukan dan menunggu review.',
+            'at'          => date('d M Y, H:i'),
+        ]);
+        // ─────────────────────────────────────────────────────────────────
+
+        return response()->json([
+            'workId'      => $workId,
+            'submittedAt' => date('c'),
+            'message'     => 'New Construction Work stored successfully.',
+        ], 201);
+    }
 }
+

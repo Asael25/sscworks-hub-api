@@ -13,11 +13,15 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::get('/approvals', [ApprovalController::class, 'index']);
-Route::get('/construction-works', [ConstructionController::class, 'index']);
-Route::get('/customer-projects', [CustomerProjectController::class, 'index']);
 
-Route::get('/legal-requests', [LegalRequestController::class, 'index']);
+Route::get('/construction-works',  [ConstructionController::class, 'index']);
+Route::post('/construction-works', [ConstructionController::class, 'store']);
+
+Route::get('/customer-projects',  [CustomerProjectController::class, 'index']);
+Route::post('/customer-projects', [CustomerProjectController::class, 'store']);
+
+Route::get('/legal-requests',  [LegalRequestController::class, 'index']);
 Route::post('/legal-requests', [LegalRequestController::class, 'store']);
 
 Route::post('/auth/signin', [AuthController::class, 'signIn']);
-Route::get('/auth/users', [AuthController::class, 'me']);
+Route::get('/auth/users',   [AuthController::class, 'me']);
