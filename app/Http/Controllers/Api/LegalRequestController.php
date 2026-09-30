@@ -35,6 +35,8 @@ class LegalRequestController extends Controller
                 'current_stage' => $item->current_stage,
                 'status' => $item->status,
                 'description' => $item->description ?? '',
+                'purpose' => $item->purpose ?? '',
+                'notes_text' => $item->notes_text ?? '',
                 'counterparty' => $item->counterparty,
                 'estimated_value' => $item->estimated_value,
                 'attachments' => $item->attachments->map(function ($a) {
@@ -97,7 +99,22 @@ class LegalRequestController extends Controller
 
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $isDraft = $request->boolean('isDraft');
+
+        $rules = $isDraft ? [
+            'unit' => 'nullable|string',
+            'submittedDate' => 'nullable|string',
+            'category' => 'nullable|string',
+            'priority' => 'nullable|string',
+            'title' => 'nullable|string',
+            'description' => 'nullable|string',
+            'purpose' => 'nullable|string',
+            'targetDate' => 'nullable|string',
+            'pic' => 'nullable|string',
+            'notes' => 'nullable|string',
+            'attachments' => 'nullable|array',
+            'isDraft' => 'nullable|boolean',
+        ] : [
             'unit' => 'required|string',
             'submittedDate' => 'required|string',
             'category' => 'required|string',
@@ -110,7 +127,9 @@ class LegalRequestController extends Controller
             'notes' => 'nullable|string',
             'attachments' => 'nullable|array',
             'isDraft' => 'nullable|boolean',
-        ]);
+        ];
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return response()->json([
@@ -128,23 +147,36 @@ class LegalRequestController extends Controller
         $maxId = LegalRequest::selectRaw('MAX(CAST(id AS UNSIGNED)) as max_id')->value('max_id');
         $id = (string) ($maxId ? ((int)$maxId + 1) : rand(100, 9999));
 
-        $status = $request->boolean('isDraft') ? 'draft' : 'waiting_review';
-        $currentStage = $request->boolean('isDraft') ? 'Draft' : 'Pengajuan Diterima';
+        $status = $isDraft ? 'draft' : 'waiting_review';
+        $currentStage = $isDraft ? 'Draft' : 'Pengajuan Diterima';
+
+        $unit = !empty($validated['unit']) ? $validated['unit'] : 'Unit Pemohon';
+        $category = !empty($validated['category']) ? $validated['category'] : 'Corporate Legal';
+        $title = !empty($validated['title']) ? $validated['title'] : 'Draft Permintaan Legal (' . date('d/m/Y H:i') . ')';
+        $pic = !empty($validated['pic']) ? $validated['pic'] : 'Pemohon (Draft)';
+        $submittedDate = !empty($validated['submittedDate']) ? $validated['submittedDate'] : date('Y-m-d');
+        $targetDate = !empty($validated['targetDate']) ? $validated['targetDate'] : date('Y-m-d', strtotime('+7 days'));
+        $priority = !empty($validated['priority']) ? strtolower($validated['priority']) : 'medium';
+        $description = $validated['description'] ?? '';
+        $purpose = $validated['purpose'] ?? '';
+        $notesText = $validated['notes'] ?? '';
 
         $legalRequest = LegalRequest::create([
             'id' => $id,
             'request_code' => $requestCode,
-            'submitted_at' => $validated['submittedDate'],
-            'unit' => $validated['unit'],
-            'category' => $validated['category'],
-            'title' => $validated['title'],
-            'applicant' => $validated['pic'],
-            'applicant_email' => strtolower(str_replace(' ', '', $validated['pic'])) . '@sscworks.com',
-            'priority' => strtolower($validated['priority']),
-            'target_date' => $validated['targetDate'],
+            'submitted_at' => $submittedDate,
+            'unit' => $unit,
+            'category' => $category,
+            'title' => $title,
+            'applicant' => $pic,
+            'applicant_email' => strtolower(str_replace(' ', '', $pic)) . '@sscworks.com',
+            'priority' => $priority,
+            'target_date' => $targetDate,
             'current_stage' => $currentStage,
             'status' => $status,
-            'description' => $validated['description'],
+            'description' => $description,
+            'purpose' => $purpose,
+            'notes_text' => $notesText,
             'counterparty' => null,
             'estimated_value' => null,
         ]);
@@ -152,21 +184,23 @@ class LegalRequestController extends Controller
         LegalTimelineEvent::create([
             'id' => (string) rand(1000, 99999),
             'request_id' => $id,
-            'stage' => 'Pengajuan Diterima',
-            'actor' => $validated['pic'],
+            'stage' => $isDraft ? 'Draft Dibuat' : 'Pengajuan Diterima',
+            'actor' => $pic,
             'occurred_at' => date('d M Y, H:i'),
             'state' => 'done',
-            'note' => $validated['notes'] ?? 'Legal request submitted.',
+            'note' => $validated['notes'] ?? ($isDraft ? 'Draf permintaan disimpan.' : 'Legal request submitted.'),
         ]);
 
-        LegalTimelineEvent::create([
-            'id' => (string) rand(1000, 99999),
-            'request_id' => $id,
-            'stage' => 'Review Tim Legal',
-            'actor' => 'Legal Officer',
-            'occurred_at' => null,
-            'state' => 'current',
-        ]);
+        if (!$isDraft) {
+            LegalTimelineEvent::create([
+                'id' => (string) rand(1000, 99999),
+                'request_id' => $id,
+                'stage' => 'Review Tim Legal',
+                'actor' => 'Legal Officer',
+                'occurred_at' => null,
+                'state' => 'current',
+            ]);
+        }
 
         if (!empty($validated['attachments'])) {
             foreach ($validated['attachments'] as $att) {
@@ -176,32 +210,32 @@ class LegalRequestController extends Controller
                     'file_name' => $att['name'] ?? 'attachment.pdf',
                     'file_type' => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
                     'file_size_kb' => $att['sizeKb'] ?? 100,
-                    'uploaded_by' => $validated['pic'],
+                    'uploaded_by' => $pic,
                     'uploaded_at' => date('Y-m-d'),
                 ]);
             }
         }
 
         // ─── Auto-create global Approval Center record ───────────────────
-        if (!$request->boolean('isDraft')) {
+        if (!$isDraft) {
             $approvalId = $requestCode; // gunakan kode request yang sama sbg ID approval
 
             Approval::create([
                 'id'              => $approvalId,
                 'module'          => 'Legal',
-                'request'         => $validated['title'],
-                'summary'         => $validated['description'],
-                'unit'            => $validated['unit'],
-                'submitted_by'    => $validated['pic'],
-                'submitted_by_id' => strtolower(str_replace(' ', '', $validated['pic'])),
-                'submitted_date'  => $validated['submittedDate'],
+                'request'         => $title,
+                'summary'         => $description,
+                'unit'            => $unit,
+                'submitted_by'    => $pic,
+                'submitted_by_id' => strtolower(str_replace(' ', '', $pic)),
+                'submitted_date'  => $submittedDate,
                 'period'          => date('M Y'),
                 'amount'          => null,
                 'amount_label'    => '-',
                 'current_stage'   => 1,
-                'priority'        => $validated['priority'],
+                'priority'        => $priority,
                 'status'          => 'Waiting',
-                'due_date'        => $validated['targetDate'],
+                'due_date'        => $targetDate,
                 'notes'           => $validated['notes'] ?? null,
             ]);
 
@@ -218,14 +252,14 @@ class LegalRequestController extends Controller
                     'name'        => $stg['name'],
                     'role'        => $stg['role'],
                     'approver'    => null,
-                    'unit_scope'  => $validated['unit'],
+                    'unit_scope'  => $unit,
                 ]);
             }
 
             // Riwayat awal
             ApprovalHistory::create([
                 'approval_id' => $approvalId,
-                'actor'       => $validated['pic'],
+                'actor'       => $pic,
                 'role'        => 'Pemohon',
                 'action'      => 'Pengajuan Dikirim',
                 'note'        => 'Legal request berhasil diajukan dan menunggu review.',
@@ -235,9 +269,181 @@ class LegalRequestController extends Controller
         // ─────────────────────────────────────────────────────────────────
 
         return response()->json([
+            'id' => $id,
             'requestCode' => $requestCode,
             'submittedAt' => date('c'),
-            'message' => 'New Legal Request stored successfully in MySQL database.'
+            'message' => $isDraft ? 'Draft tersimpan di database.' : 'New Legal Request stored successfully in MySQL database.'
         ], 201);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $legalRequest = LegalRequest::where('id', $id)->orWhere('request_code', $id)->first();
+        if (!$legalRequest) {
+            return response()->json(['error' => 'Legal request not found.'], 404);
+        }
+
+        $isDraft = $request->boolean('isDraft');
+
+        $rules = $isDraft ? [
+            'unit' => 'nullable|string',
+            'submittedDate' => 'nullable|string',
+            'category' => 'nullable|string',
+            'priority' => 'nullable|string',
+            'title' => 'nullable|string',
+            'description' => 'nullable|string',
+            'purpose' => 'nullable|string',
+            'targetDate' => 'nullable|string',
+            'pic' => 'nullable|string',
+            'notes' => 'nullable|string',
+            'attachments' => 'nullable|array',
+            'isDraft' => 'nullable|boolean',
+        ] : [
+            'unit' => 'required|string',
+            'submittedDate' => 'required|string',
+            'category' => 'required|string',
+            'priority' => 'required|string',
+            'title' => 'required|string',
+            'description' => 'required|string',
+            'purpose' => 'nullable|string',
+            'targetDate' => 'required|string',
+            'pic' => 'required|string',
+            'notes' => 'nullable|string',
+            'attachments' => 'nullable|array',
+            'isDraft' => 'nullable|boolean',
+        ];
+
+        $validator = Validator::make($request->all(), $rules);
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Validation error',
+                'messages' => $validator->errors()->all()
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        $status = $isDraft ? 'draft' : 'waiting_review';
+        $currentStage = $isDraft ? 'Draft' : 'Pengajuan Diterima';
+
+        $unit = !empty($validated['unit']) ? $validated['unit'] : $legalRequest->unit;
+        $category = !empty($validated['category']) ? $validated['category'] : $legalRequest->category;
+        $title = !empty($validated['title']) ? $validated['title'] : $legalRequest->title;
+        $pic = !empty($validated['pic']) ? $validated['pic'] : $legalRequest->applicant;
+        $submittedDate = !empty($validated['submittedDate']) ? $validated['submittedDate'] : $legalRequest->submitted_at;
+        $targetDate = !empty($validated['targetDate']) ? $validated['targetDate'] : $legalRequest->target_date;
+        $priority = !empty($validated['priority']) ? strtolower($validated['priority']) : $legalRequest->priority;
+        $description = $validated['description'] ?? $legalRequest->description;
+        $purpose = array_key_exists('purpose', $validated) ? $validated['purpose'] : ($legalRequest->purpose ?? '');
+        $notesText = array_key_exists('notes', $validated) ? $validated['notes'] : ($legalRequest->notes_text ?? '');
+
+        $legalRequest->update([
+            'submitted_at' => $submittedDate,
+            'unit' => $unit,
+            'category' => $category,
+            'title' => $title,
+            'applicant' => $pic,
+            'applicant_email' => strtolower(str_replace(' ', '', $pic)) . '@sscworks.com',
+            'priority' => $priority,
+            'target_date' => $targetDate,
+            'current_stage' => $currentStage,
+            'status' => $status,
+            'description' => $description,
+            'purpose' => $purpose,
+            'notes_text' => $notesText,
+        ]);
+
+        if (!empty($validated['attachments'])) {
+            LegalAttachment::where('request_id', $legalRequest->id)->delete();
+            foreach ($validated['attachments'] as $att) {
+                LegalAttachment::create([
+                    'id' => (string) rand(1000, 99999),
+                    'request_id' => $legalRequest->id,
+                    'file_name' => $att['name'] ?? 'attachment.pdf',
+                    'file_type' => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                    'file_size_kb' => $att['sizeKb'] ?? 100,
+                    'uploaded_by' => $pic,
+                    'uploaded_at' => date('Y-m-d'),
+                ]);
+            }
+        }
+
+        if (!$isDraft) {
+            // Update/create timeline for submit
+            LegalTimelineEvent::create([
+                'id' => (string) rand(1000, 99999),
+                'request_id' => $legalRequest->id,
+                'stage' => 'Pengajuan Diterima',
+                'actor' => $pic,
+                'occurred_at' => date('d M Y, H:i'),
+                'state' => 'done',
+                'note' => $validated['notes'] ?? 'Draf berhasil disubmit untuk diproses tim legal.',
+            ]);
+
+            LegalTimelineEvent::create([
+                'id' => (string) rand(1000, 99999),
+                'request_id' => $legalRequest->id,
+                'stage' => 'Review Tim Legal',
+                'actor' => 'Legal Officer',
+                'occurred_at' => null,
+                'state' => 'current',
+            ]);
+
+            // Create Approval Center record if not exists
+            $approvalId = $legalRequest->request_code;
+            $existingApp = Approval::find($approvalId);
+            if (!$existingApp) {
+                Approval::create([
+                    'id'              => $approvalId,
+                    'module'          => 'Legal',
+                    'request'         => $title,
+                    'summary'         => $description,
+                    'unit'            => $unit,
+                    'submitted_by'    => $pic,
+                    'submitted_by_id' => strtolower(str_replace(' ', '', $pic)),
+                    'submitted_date'  => $submittedDate,
+                    'period'          => date('M Y'),
+                    'amount'          => null,
+                    'amount_label'    => '-',
+                    'current_stage'   => 1,
+                    'priority'        => $priority,
+                    'status'          => 'Waiting',
+                    'due_date'        => $targetDate,
+                    'notes'           => $validated['notes'] ?? null,
+                ]);
+
+                $stages = [
+                    ['order' => 1, 'name' => 'Review Tim Legal',      'role' => 'Legal Officer'],
+                    ['order' => 2, 'name' => 'Persetujuan Manager',    'role' => 'Manager Legal'],
+                    ['order' => 3, 'name' => 'Persetujuan Direktur',   'role' => 'Direktur'],
+                ];
+                foreach ($stages as $stg) {
+                    ApprovalStage::create([
+                        'approval_id' => $approvalId,
+                        'order'       => $stg['order'],
+                        'name'        => $stg['name'],
+                        'role'        => $stg['role'],
+                        'approver'    => null,
+                        'unit_scope'  => $unit,
+                    ]);
+                }
+
+                ApprovalHistory::create([
+                    'approval_id' => $approvalId,
+                    'actor'       => $pic,
+                    'role'        => 'Pemohon',
+                    'action'      => 'Pengajuan Dikirim dari Draft',
+                    'note'        => 'Draft legal request berhasil diajukan dan masuk ke antrean approval.',
+                    'at'          => date('d M Y, H:i'),
+                ]);
+            }
+        }
+
+        return response()->json([
+            'id' => $legalRequest->id,
+            'requestCode' => $legalRequest->request_code,
+            'submittedAt' => date('c'),
+            'message' => $isDraft ? 'Draft berhasil diperbarui.' : 'Permintaan legal berhasil disubmit ke antrean approval.'
+        ], 200);
     }
 }

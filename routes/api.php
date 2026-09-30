@@ -22,6 +22,8 @@ Route::post('/customer-projects', [CustomerProjectController::class, 'store']);
 
 Route::get('/legal-requests',  [LegalRequestController::class, 'index']);
 Route::post('/legal-requests', [LegalRequestController::class, 'store']);
+Route::put('/legal-requests/{id}', [LegalRequestController::class, 'update']);
+Route::post('/legal-requests/{id}', [LegalRequestController::class, 'update']);
 
 Route::post('/auth/signin', [AuthController::class, 'signIn']);
 Route::get('/auth/users',   [AuthController::class, 'me']);
