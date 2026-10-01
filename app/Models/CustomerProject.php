@@ -16,12 +16,17 @@ class CustomerProject extends Model
     protected $fillable = [
         'id', 'customer', 'name', 'contract_number', 'po_number', 'unit',
         'location', 'contract_value', 'target', 'actual', 'deadline',
-        'start_date', 'period', 'status', 'pic', 'payment_term', 'retention'
+        'start_date', 'period', 'status', 'pic', 'payment_term', 'retention', 'notes'
     ];
 
     public function scopes()
     {
         return $this->hasMany(CustomerProjectScope::class, 'project_id', 'id');
+    }
+
+    public function attachments()
+    {
+        return $this->hasMany(CustomerProjectAttachment::class, 'project_id', 'id');
     }
 
     public function weeklyProgresses()

@@ -16,7 +16,7 @@ class ConstructionWork extends Model
     protected $fillable = [
         'id', 'name', 'unit', 'location', 'vendor', 'contract_number',
         'pic', 'start_date', 'target_date', 'period', 'target', 'actual',
-        'status', 'budget', 'quality_checked', 'quality_passed',
+        'status', 'budget', 'notes', 'quality_checked', 'quality_passed',
         'quality_reworks', 'quality_note', 'safety_manhours',
         'safety_incidents', 'safety_near_miss', 'safety_toolbox'
     ];
@@ -24,6 +24,11 @@ class ConstructionWork extends Model
     public function scopes()
     {
         return $this->hasMany(ConstructionScope::class, 'work_id', 'id');
+    }
+
+    public function attachments()
+    {
+        return $this->hasMany(ConstructionAttachment::class, 'work_id', 'id');
     }
 
     public function weeklyProgresses()

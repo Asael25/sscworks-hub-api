@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ConstructionWork;
+use App\Models\ConstructionScope;
+use App\Models\ConstructionAttachment;
 use App\Models\Approval;
 use App\Models\ApprovalStage;
 use App\Models\ApprovalHistory;
@@ -14,7 +16,7 @@ class ConstructionController extends Controller
 {
     public function index()
     {
-        $works = ConstructionWork::with(['scopes', 'weeklyProgresses', 'issues', 'photos', 'approvals'])
+        $works = ConstructionWork::with(['scopes', 'weeklyProgresses', 'issues', 'photos', 'approvals', 'attachments'])
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -34,12 +36,25 @@ class ConstructionController extends Controller
                 'actual' => (float) $item->actual,
                 'status' => $item->status,
                 'budget' => (float) $item->budget,
+                'notes' => $item->notes ?? '',
                 'scopes' => $item->scopes->map(function ($s) {
                     return [
+                        'id' => (string) $s->id,
                         'scope' => $s->scope,
+                        'quantity' => (string) ($s->quantity ?? '1'),
+                        'unitOfMeasure' => (string) ($s->unit_of_measure ?? 'ls'),
                         'weight' => (float) $s->weight,
                         'target' => (float) $s->target,
                         'actual' => (float) $s->actual,
+                    ];
+                }),
+                'attachments' => $item->attachments->map(function ($a) {
+                    return [
+                        'id' => (string) $a->id,
+                        'file_name' => $a->file_name,
+                        'file_type' => $a->file_type,
+                        'file_size_kb' => (int) $a->file_size_kb,
+                        'uploaded_by' => $a->uploaded_by,
                     ];
                 }),
                 'weekly' => $item->weeklyProgresses->map(function ($w) {
@@ -95,7 +110,23 @@ class ConstructionController extends Controller
 
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $isDraft = $request->boolean('isDraft');
+
+        $rules = $isDraft ? [
+            'name'           => 'nullable|string',
+            'unit'           => 'nullable|string',
+            'location'       => 'nullable|string',
+            'vendor'         => 'nullable|string',
+            'contractNumber' => 'nullable|string',
+            'pic'            => 'nullable|string',
+            'startDate'      => 'nullable|string',
+            'targetDate'     => 'nullable|string',
+            'budget'         => 'nullable|numeric',
+            'notes'          => 'nullable|string',
+            'scopes'         => 'nullable|array',
+            'attachments'    => 'nullable|array',
+            'isDraft'        => 'nullable|boolean',
+        ] : [
             'name'           => 'required|string',
             'unit'           => 'required|string',
             'location'       => 'required|string',
@@ -106,7 +137,12 @@ class ConstructionController extends Controller
             'targetDate'     => 'required|string',
             'budget'         => 'nullable|numeric',
             'notes'          => 'nullable|string',
-        ]);
+            'scopes'         => 'nullable|array',
+            'attachments'    => 'nullable|array',
+            'isDraft'        => 'nullable|boolean',
+        ];
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return response()->json([
@@ -121,75 +157,283 @@ class ConstructionController extends Controller
         $seq  = str_pad((string) rand(1, 9999), 4, '0', STR_PAD_LEFT);
         $workId = "KI-{$year}-{$seq}";
 
+        $name = !empty($validated['name']) ? $validated['name'] : 'Draft Pekerjaan Internal (' . date('d/m/Y H:i') . ')';
+        $unit = !empty($validated['unit']) ? $validated['unit'] : 'SSC Samarinda';
+        $location = !empty($validated['location']) ? $validated['location'] : 'Lokasi Draft';
+        $vendor = !empty($validated['vendor']) ? $validated['vendor'] : 'Vendor Draft';
+        $contractNumber = !empty($validated['contractNumber']) ? $validated['contractNumber'] : 'SPK-DRAFT-' . rand(100, 999);
+        $pic = !empty($validated['pic']) ? $validated['pic'] : 'PIC (Draft)';
+        $startDate = !empty($validated['startDate']) ? $validated['startDate'] : date('Y-m-d');
+        $targetDate = !empty($validated['targetDate']) ? $validated['targetDate'] : date('Y-m-d', strtotime('+30 days'));
+        $status = $isDraft ? 'Draft' : 'Waiting Approval';
+
         $work = ConstructionWork::create([
             'id'              => $workId,
-            'name'            => $validated['name'],
-            'unit'            => $validated['unit'],
-            'location'        => $validated['location'],
-            'vendor'          => $validated['vendor'],
-            'contract_number' => $validated['contractNumber'],
-            'pic'             => $validated['pic'],
-            'start_date'      => $validated['startDate'],
-            'target_date'     => $validated['targetDate'],
+            'name'            => $name,
+            'unit'            => $unit,
+            'location'        => $location,
+            'vendor'          => $vendor,
+            'contract_number' => $contractNumber,
+            'pic'             => $pic,
+            'start_date'      => $startDate,
+            'target_date'     => $targetDate,
             'period'          => date('M Y'),
             'target'          => 0,
             'actual'          => 0,
-            'status'          => 'Waiting Approval',
+            'status'          => $status,
             'budget'          => $validated['budget'] ?? 0,
-        ]);
-
-        // ─── Auto-create global Approval Center record ───────────────────
-        $approvalId = $workId;
-
-        Approval::create([
-            'id'              => $approvalId,
-            'module'          => 'Konstruksi Internal',
-            'request'         => $validated['name'],
-            'summary'         => "Pekerjaan konstruksi di {$validated['location']} oleh {$validated['vendor']}.",
-            'unit'            => $validated['unit'],
-            'submitted_by'    => $validated['pic'],
-            'submitted_by_id' => strtolower(str_replace(' ', '', $validated['pic'])),
-            'submitted_date'  => date('d M Y'),
-            'period'          => date('M Y'),
-            'amount'          => $validated['budget'] ?? null,
-            'amount_label'    => $validated['budget'] ? 'Rp ' . number_format($validated['budget'], 0, ',', '.') : '-',
-            'current_stage'   => 1,
-            'priority'        => 'Medium',
-            'status'          => 'Waiting',
-            'due_date'        => $validated['targetDate'],
             'notes'           => $validated['notes'] ?? null,
         ]);
 
-        $stages = [
-            ['order' => 1, 'name' => 'Review Manajer Proyek',   'role' => 'Manajer Proyek'],
-            ['order' => 2, 'name' => 'Persetujuan Direktur',    'role' => 'Direktur'],
-        ];
-        foreach ($stages as $stg) {
-            ApprovalStage::create([
-                'approval_id' => $approvalId,
-                'order'       => $stg['order'],
-                'name'        => $stg['name'],
-                'role'        => $stg['role'],
-                'approver'    => null,
-                'unit_scope'  => $validated['unit'],
-            ]);
+        // Simpan Scopes jika ada
+        if (!empty($validated['scopes'])) {
+            foreach ($validated['scopes'] as $sc) {
+                if (!empty($sc['scope'])) {
+                    ConstructionScope::create([
+                        'work_id'         => $workId,
+                        'scope'           => $sc['scope'],
+                        'quantity'        => (string) ($sc['quantity'] ?? '1'),
+                        'unit_of_measure' => (string) ($sc['unitOfMeasure'] ?? $sc['unit'] ?? 'ls'),
+                        'weight'          => (float) ($sc['weight'] ?? 0),
+                        'target'          => (float) ($sc['weeklyTarget'] ?? $sc['target'] ?? 0),
+                        'actual'          => 0,
+                    ]);
+                }
+            }
         }
 
-        ApprovalHistory::create([
-            'approval_id' => $approvalId,
-            'actor'       => $validated['pic'],
-            'role'        => 'PIC Proyek',
-            'action'      => 'Pengajuan Dikirim',
-            'note'        => 'Pekerjaan konstruksi internal berhasil diajukan dan menunggu review.',
-            'at'          => date('d M Y, H:i'),
-        ]);
-        // ─────────────────────────────────────────────────────────────────
+        // Simpan Attachments jika ada
+        if (!empty($validated['attachments'])) {
+            foreach ($validated['attachments'] as $att) {
+                ConstructionAttachment::create([
+                    'work_id'      => $workId,
+                    'file_name'    => $att['name'] ?? 'attachment.pdf',
+                    'file_type'    => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                    'file_size_kb' => (int) ($att['sizeKb'] ?? 100),
+                    'uploaded_by'  => $pic,
+                    'uploaded_at'  => date('Y-m-d'),
+                ]);
+            }
+        }
+
+        if (!$isDraft) {
+            // ─── Auto-create global Approval Center record ───────────────────
+            $approvalId = $workId;
+
+            Approval::create([
+                'id'              => $approvalId,
+                'module'          => 'Konstruksi Internal',
+                'request'         => $name,
+                'summary'         => "Pekerjaan konstruksi di {$location} oleh {$vendor}.",
+                'unit'            => $unit,
+                'submitted_by'    => $pic,
+                'submitted_by_id' => strtolower(str_replace(' ', '', $pic)),
+                'submitted_date'  => date('d M Y'),
+                'period'          => date('M Y'),
+                'amount'          => $validated['budget'] ?? null,
+                'amount_label'    => $validated['budget'] ? 'Rp ' . number_format($validated['budget'], 0, ',', '.') : '-',
+                'current_stage'   => 1,
+                'priority'        => 'Medium',
+                'status'          => 'Waiting',
+                'due_date'        => $targetDate,
+                'notes'           => $validated['notes'] ?? null,
+            ]);
+
+            $stages = [
+                ['order' => 1, 'name' => 'Review Manajer Proyek',   'role' => 'Manajer Proyek'],
+                ['order' => 2, 'name' => 'Persetujuan Direktur',    'role' => 'Direktur'],
+            ];
+            foreach ($stages as $stg) {
+                ApprovalStage::create([
+                    'approval_id' => $approvalId,
+                    'order'       => $stg['order'],
+                    'name'        => $stg['name'],
+                    'role'        => $stg['role'],
+                    'approver'    => null,
+                    'unit_scope'  => $unit,
+                ]);
+            }
+
+            ApprovalHistory::create([
+                'approval_id' => $approvalId,
+                'actor'       => $pic,
+                'role'        => 'PIC Proyek',
+                'action'      => 'Pengajuan Dikirim',
+                'note'        => 'Pekerjaan konstruksi internal berhasil diajukan dan menunggu review.',
+                'at'          => date('d M Y, H:i'),
+            ]);
+            // ─────────────────────────────────────────────────────────────────
+        }
 
         return response()->json([
             'workId'      => $workId,
             'submittedAt' => date('c'),
-            'message'     => 'New Construction Work stored successfully.',
+            'message'     => $isDraft ? 'Draft Pekerjaan Internal tersimpan di database.' : 'New Construction Work stored successfully.',
         ], 201);
     }
-}
 
+    public function update(Request $request, $id)
+    {
+        $work = ConstructionWork::find($id);
+        if (!$work) {
+            return response()->json(['error' => 'Construction work not found.'], 404);
+        }
+
+        $isDraft = $request->boolean('isDraft');
+
+        $rules = $isDraft ? [
+            'name'           => 'nullable|string',
+            'unit'           => 'nullable|string',
+            'location'       => 'nullable|string',
+            'vendor'         => 'nullable|string',
+            'contractNumber' => 'nullable|string',
+            'pic'            => 'nullable|string',
+            'startDate'      => 'nullable|string',
+            'targetDate'     => 'nullable|string',
+            'budget'         => 'nullable|numeric',
+            'notes'          => 'nullable|string',
+            'scopes'         => 'nullable|array',
+            'attachments'    => 'nullable|array',
+            'isDraft'        => 'nullable|boolean',
+        ] : [
+            'name'           => 'required|string',
+            'unit'           => 'required|string',
+            'location'       => 'required|string',
+            'vendor'         => 'required|string',
+            'contractNumber' => 'required|string',
+            'pic'            => 'required|string',
+            'startDate'      => 'required|string',
+            'targetDate'     => 'required|string',
+            'budget'         => 'nullable|numeric',
+            'notes'          => 'nullable|string',
+            'scopes'         => 'nullable|array',
+            'attachments'    => 'nullable|array',
+            'isDraft'        => 'nullable|boolean',
+        ];
+
+        $validator = Validator::make($request->all(), $rules);
+        if ($validator->fails()) {
+            return response()->json([
+                'error'    => 'Validation error',
+                'messages' => $validator->errors()->all(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        $status = $isDraft ? 'Draft' : 'Waiting Approval';
+
+        $name = !empty($validated['name']) ? $validated['name'] : $work->name;
+        $unit = !empty($validated['unit']) ? $validated['unit'] : $work->unit;
+        $location = !empty($validated['location']) ? $validated['location'] : $work->location;
+        $vendor = !empty($validated['vendor']) ? $validated['vendor'] : $work->vendor;
+        $contractNumber = !empty($validated['contractNumber']) ? $validated['contractNumber'] : $work->contract_number;
+        $pic = !empty($validated['pic']) ? $validated['pic'] : $work->pic;
+        $startDate = !empty($validated['startDate']) ? $validated['startDate'] : $work->start_date;
+        $targetDate = !empty($validated['targetDate']) ? $validated['targetDate'] : $work->target_date;
+        $budget = array_key_exists('budget', $validated) && $validated['budget'] !== null ? $validated['budget'] : $work->budget;
+        $notes = array_key_exists('notes', $validated) ? $validated['notes'] : $work->notes;
+
+        $work->update([
+            'name'            => $name,
+            'unit'            => $unit,
+            'location'        => $location,
+            'vendor'          => $vendor,
+            'contract_number' => $contractNumber,
+            'pic'             => $pic,
+            'start_date'      => $startDate,
+            'target_date'     => $targetDate,
+            'status'          => $status,
+            'budget'          => $budget,
+            'notes'           => $notes,
+        ]);
+
+        // Perbarui Scopes
+        if (isset($validated['scopes'])) {
+            ConstructionScope::where('work_id', $work->id)->delete();
+            foreach ($validated['scopes'] as $sc) {
+                if (!empty($sc['scope'])) {
+                    ConstructionScope::create([
+                        'work_id'         => $work->id,
+                        'scope'           => $sc['scope'],
+                        'quantity'        => (string) ($sc['quantity'] ?? '1'),
+                        'unit_of_measure' => (string) ($sc['unitOfMeasure'] ?? $sc['unit'] ?? 'ls'),
+                        'weight'          => (float) ($sc['weight'] ?? 0),
+                        'target'          => (float) ($sc['weeklyTarget'] ?? $sc['target'] ?? 0),
+                        'actual'          => 0,
+                    ]);
+                }
+            }
+        }
+
+        // Perbarui Attachments
+        if (isset($validated['attachments'])) {
+            ConstructionAttachment::where('work_id', $work->id)->delete();
+            foreach ($validated['attachments'] as $att) {
+                ConstructionAttachment::create([
+                    'work_id'      => $work->id,
+                    'file_name'    => $att['name'] ?? 'attachment.pdf',
+                    'file_type'    => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                    'file_size_kb' => (int) ($att['sizeKb'] ?? 100),
+                    'uploaded_by'  => $pic,
+                    'uploaded_at'  => date('Y-m-d'),
+                ]);
+            }
+        }
+
+        if (!$isDraft) {
+            $approvalId = $work->id;
+            $existingApp = Approval::find($approvalId);
+            if (!$existingApp) {
+                Approval::create([
+                    'id'              => $approvalId,
+                    'module'          => 'Konstruksi Internal',
+                    'request'         => $name,
+                    'summary'         => "Pekerjaan konstruksi di {$location} oleh {$vendor}.",
+                    'unit'            => $unit,
+                    'submitted_by'    => $pic,
+                    'submitted_by_id' => strtolower(str_replace(' ', '', $pic)),
+                    'submitted_date'  => date('d M Y'),
+                    'period'          => date('M Y'),
+                    'amount'          => $budget ?? null,
+                    'amount_label'    => $budget ? 'Rp ' . number_format($budget, 0, ',', '.') : '-',
+                    'current_stage'   => 1,
+                    'priority'        => 'Medium',
+                    'status'          => 'Waiting',
+                    'due_date'        => $targetDate,
+                    'notes'           => $notes,
+                ]);
+
+                $stages = [
+                    ['order' => 1, 'name' => 'Review Manajer Proyek',   'role' => 'Manajer Proyek'],
+                    ['order' => 2, 'name' => 'Persetujuan Direktur',    'role' => 'Direktur'],
+                ];
+                foreach ($stages as $stg) {
+                    ApprovalStage::create([
+                        'approval_id' => $approvalId,
+                        'order'       => $stg['order'],
+                        'name'        => $stg['name'],
+                        'role'        => $stg['role'],
+                        'approver'    => null,
+                        'unit_scope'  => $unit,
+                    ]);
+                }
+
+                ApprovalHistory::create([
+                    'approval_id' => $approvalId,
+                    'actor'       => $pic,
+                    'role'        => 'PIC Proyek',
+                    'action'      => 'Pengajuan Dikirim dari Draft',
+                    'note'        => 'Pekerjaan konstruksi internal berhasil diajukan dari draf.',
+                    'at'          => date('d M Y, H:i'),
+                ]);
+            }
+        }
+
+        return response()->json([
+            'workId'      => $work->id,
+            'submittedAt' => date('c'),
+            'message'     => $isDraft ? 'Draft berhasil diperbarui.' : 'Pekerjaan internal berhasil diajukan ke antrean approval.',
+        ], 200);
+    }
+}

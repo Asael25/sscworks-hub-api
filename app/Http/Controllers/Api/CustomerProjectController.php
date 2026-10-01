@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CustomerProject;
+use App\Models\CustomerProjectAttachment;
 use App\Models\Approval;
 use App\Models\ApprovalStage;
 use App\Models\ApprovalHistory;
@@ -14,7 +15,7 @@ class CustomerProjectController extends Controller
 {
     public function index()
     {
-        $projects = CustomerProject::with(['scopes', 'weeklyProgresses', 'issues', 'photos', 'approvals'])
+        $projects = CustomerProject::with(['scopes', 'weeklyProgresses', 'issues', 'photos', 'approvals', 'attachments'])
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -37,6 +38,16 @@ class CustomerProjectController extends Controller
                 'pic' => $item->pic,
                 'paymentTerm' => $item->payment_term,
                 'retention' => $item->retention,
+                'notes' => $item->notes ?? '',
+                'attachments' => $item->attachments->map(function ($a) {
+                    return [
+                        'id' => (string) $a->id,
+                        'file_name' => $a->file_name,
+                        'file_type' => $a->file_type,
+                        'file_size_kb' => (int) $a->file_size_kb,
+                        'uploaded_by' => $a->uploaded_by,
+                    ];
+                }),
                 'scopes' => $item->scopes->map(function ($s) {
                     return [
                         'scope' => $s->scope,
@@ -86,7 +97,23 @@ class CustomerProjectController extends Controller
 
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $isDraft = $request->boolean('isDraft');
+
+        $rules = $isDraft ? [
+            'customer'      => 'nullable|string',
+            'name'          => 'nullable|string',
+            'unit'          => 'nullable|string',
+            'location'      => 'nullable|string',
+            'contractValue' => 'nullable|numeric',
+            'pic'           => 'nullable|string',
+            'startDate'     => 'nullable|string',
+            'deadline'      => 'nullable|string',
+            'paymentTerm'   => 'nullable|string',
+            'retention'     => 'nullable|string',
+            'notes'         => 'nullable|string',
+            'attachments'   => 'nullable|array',
+            'isDraft'       => 'nullable|boolean',
+        ] : [
             'customer'      => 'required|string',
             'name'          => 'required|string',
             'unit'          => 'required|string',
@@ -98,7 +125,11 @@ class CustomerProjectController extends Controller
             'paymentTerm'   => 'nullable|string',
             'retention'     => 'nullable|string',
             'notes'         => 'nullable|string',
-        ]);
+            'attachments'   => 'nullable|array',
+            'isDraft'       => 'nullable|boolean',
+        ];
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return response()->json([
@@ -113,81 +144,260 @@ class CustomerProjectController extends Controller
         $seq  = str_pad((string) rand(1, 99999), 5, '0', STR_PAD_LEFT);
         $projectId = "CPR-{$year}-{$seq}";
 
-        CustomerProject::create([
+        $customer = !empty($validated['customer']) ? $validated['customer'] : 'Customer (Draft)';
+        $name = !empty($validated['name']) ? $validated['name'] : 'Draft Customer Project (' . date('d/m/Y H:i') . ')';
+        $unit = !empty($validated['unit']) ? $validated['unit'] : 'Project Samarinda';
+        $location = !empty($validated['location']) ? $validated['location'] : 'Lokasi Draft';
+        $pic = !empty($validated['pic']) ? $validated['pic'] : 'PIC (Draft)';
+        $startDate = !empty($validated['startDate']) ? $validated['startDate'] : date('Y-m-d');
+        $deadline = !empty($validated['deadline']) ? $validated['deadline'] : date('Y-m-d', strtotime('+30 days'));
+        $status = $isDraft ? 'Draft' : 'Waiting Approval';
+
+        $project = CustomerProject::create([
             'id'             => $projectId,
-            'customer'       => $validated['customer'],
-            'name'           => $validated['name'],
+            'customer'       => $customer,
+            'name'           => $name,
             'contract_number'=> 'SPK-' . strtoupper(substr(md5($projectId), 0, 8)),
             'po_number'      => 'PO-' . strtoupper(substr(md5($projectId . 'po'), 0, 6)),
-            'unit'           => $validated['unit'],
-            'location'       => $validated['location'],
+            'unit'           => $unit,
+            'location'       => $location,
             'contract_value' => $validated['contractValue'] ?? 0,
             'target'         => 0,
             'actual'         => 0,
-            'deadline'       => $validated['deadline'],
-            'start_date'     => $validated['startDate'],
+            'deadline'       => $deadline,
+            'start_date'     => $startDate,
             'period'         => date('M Y'),
-            'status'         => 'Waiting Approval',
-            'pic'            => $validated['pic'],
+            'status'         => $status,
+            'pic'            => $pic,
             'payment_term'   => $validated['paymentTerm'] ?? '-',
             'retention'      => $validated['retention'] ?? '-',
+            'notes'          => $validated['notes'] ?? null,
         ]);
 
-        // ─── Auto-create global Approval Center record ───────────────────
-        $approvalId = $projectId;
-
-        Approval::create([
-            'id'              => $approvalId,
-            'module'          => 'Project Customer',
-            'request'         => $validated['name'],
-            'summary'         => "Project untuk {$validated['customer']} di {$validated['location']}.",
-            'unit'            => $validated['unit'],
-            'submitted_by'    => $validated['pic'],
-            'submitted_by_id' => strtolower(str_replace(' ', '', $validated['pic'])),
-            'submitted_date'  => date('d M Y'),
-            'period'          => date('M Y'),
-            'amount'          => $validated['contractValue'] ?? null,
-            'amount_label'    => $validated['contractValue']
-                                    ? 'Rp ' . number_format($validated['contractValue'], 0, ',', '.')
-                                    : '-',
-            'current_stage'   => 1,
-            'priority'        => 'Medium',
-            'status'          => 'Waiting',
-            'due_date'        => $validated['deadline'],
-            'notes'           => $validated['notes'] ?? null,
-        ]);
-
-        $stages = [
-            ['order' => 1, 'name' => 'Review Manajer Proyek',   'role' => 'Manajer Proyek'],
-            ['order' => 2, 'name' => 'Persetujuan Keuangan',    'role' => 'Manajer Keuangan'],
-            ['order' => 3, 'name' => 'Persetujuan Direktur',    'role' => 'Direktur'],
-        ];
-        foreach ($stages as $stg) {
-            ApprovalStage::create([
-                'approval_id' => $approvalId,
-                'order'       => $stg['order'],
-                'name'        => $stg['name'],
-                'role'        => $stg['role'],
-                'approver'    => null,
-                'unit_scope'  => $validated['unit'],
-            ]);
+        // Simpan Attachments jika ada
+        if (!empty($validated['attachments'])) {
+            foreach ($validated['attachments'] as $att) {
+                CustomerProjectAttachment::create([
+                    'project_id'   => $projectId,
+                    'file_name'    => $att['name'] ?? 'attachment.pdf',
+                    'file_type'    => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                    'file_size_kb' => (int) ($att['sizeKb'] ?? 100),
+                    'uploaded_by'  => $pic,
+                    'uploaded_at'  => date('Y-m-d'),
+                ]);
+            }
         }
 
-        ApprovalHistory::create([
-            'approval_id' => $approvalId,
-            'actor'       => $validated['pic'],
-            'role'        => 'PIC Project',
-            'action'      => 'Pengajuan Dikirim',
-            'note'        => 'Project customer berhasil diajukan dan menunggu review.',
-            'at'          => date('d M Y, H:i'),
-        ]);
-        // ─────────────────────────────────────────────────────────────────
+        if (!$isDraft) {
+            // ─── Auto-create global Approval Center record ───────────────────
+            $approvalId = $projectId;
+
+            Approval::create([
+                'id'              => $approvalId,
+                'module'          => 'Project Customer',
+                'request'         => $name,
+                'summary'         => "Project untuk {$customer} di {$location}.",
+                'unit'            => $unit,
+                'submitted_by'    => $pic,
+                'submitted_by_id' => strtolower(str_replace(' ', '', $pic)),
+                'submitted_date'  => date('d M Y'),
+                'period'          => date('M Y'),
+                'amount'          => $validated['contractValue'] ?? null,
+                'amount_label'    => $validated['contractValue']
+                                        ? 'Rp ' . number_format($validated['contractValue'], 0, ',', '.')
+                                        : '-',
+                'current_stage'   => 1,
+                'priority'        => 'Medium',
+                'status'          => 'Waiting',
+                'due_date'        => $deadline,
+                'notes'           => $validated['notes'] ?? null,
+            ]);
+
+            $stages = [
+                ['order' => 1, 'name' => 'Review Manajer Proyek',   'role' => 'Manajer Proyek'],
+                ['order' => 2, 'name' => 'Persetujuan Keuangan',    'role' => 'Manajer Keuangan'],
+                ['order' => 3, 'name' => 'Persetujuan Direktur',    'role' => 'Direktur'],
+            ];
+            foreach ($stages as $stg) {
+                ApprovalStage::create([
+                    'approval_id' => $approvalId,
+                    'order'       => $stg['order'],
+                    'name'        => $stg['name'],
+                    'role'        => $stg['role'],
+                    'approver'    => null,
+                    'unit_scope'  => $unit,
+                ]);
+            }
+
+            ApprovalHistory::create([
+                'approval_id' => $approvalId,
+                'actor'       => $pic,
+                'role'        => 'PIC Project',
+                'action'      => 'Pengajuan Dikirim',
+                'note'        => 'Project customer berhasil diajukan dan menunggu review.',
+                'at'          => date('d M Y, H:i'),
+            ]);
+            // ─────────────────────────────────────────────────────────────────
+        }
 
         return response()->json([
             'projectId'   => $projectId,
             'submittedAt' => date('c'),
-            'message'     => 'New Customer Project stored successfully.',
+            'message'     => $isDraft ? 'Draft Project Customer tersimpan di database.' : 'New Customer Project stored successfully.',
         ], 201);
     }
-}
 
+    public function update(Request $request, $id)
+    {
+        $project = CustomerProject::where('id', $id)->orWhere('contract_number', $id)->first();
+        if (!$project) {
+            return response()->json(['error' => 'Customer project not found.'], 404);
+        }
+
+        $isDraft = $request->boolean('isDraft');
+
+        $rules = $isDraft ? [
+            'customer'      => 'nullable|string',
+            'name'          => 'nullable|string',
+            'unit'          => 'nullable|string',
+            'location'      => 'nullable|string',
+            'contractValue' => 'nullable|numeric',
+            'pic'           => 'nullable|string',
+            'startDate'     => 'nullable|string',
+            'deadline'      => 'nullable|string',
+            'paymentTerm'   => 'nullable|string',
+            'retention'     => 'nullable|string',
+            'notes'         => 'nullable|string',
+            'attachments'   => 'nullable|array',
+            'isDraft'       => 'nullable|boolean',
+        ] : [
+            'customer'      => 'required|string',
+            'name'          => 'required|string',
+            'unit'          => 'required|string',
+            'location'      => 'required|string',
+            'contractValue' => 'nullable|numeric',
+            'pic'           => 'required|string',
+            'startDate'     => 'required|string',
+            'deadline'      => 'required|string',
+            'paymentTerm'   => 'nullable|string',
+            'retention'     => 'nullable|string',
+            'notes'         => 'nullable|string',
+            'attachments'   => 'nullable|array',
+            'isDraft'       => 'nullable|boolean',
+        ];
+
+        $validator = Validator::make($request->all(), $rules);
+        if ($validator->fails()) {
+            return response()->json([
+                'error'    => 'Validation error',
+                'messages' => $validator->errors()->all(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        $status = $isDraft ? 'Draft' : 'Waiting Approval';
+
+        $customer = !empty($validated['customer']) ? $validated['customer'] : $project->customer;
+        $name = !empty($validated['name']) ? $validated['name'] : $project->name;
+        $unit = !empty($validated['unit']) ? $validated['unit'] : $project->unit;
+        $location = !empty($validated['location']) ? $validated['location'] : $project->location;
+        $pic = !empty($validated['pic']) ? $validated['pic'] : $project->pic;
+        $startDate = !empty($validated['startDate']) ? $validated['startDate'] : $project->start_date;
+        $deadline = !empty($validated['deadline']) ? $validated['deadline'] : $project->deadline;
+        $contractValue = array_key_exists('contractValue', $validated) && $validated['contractValue'] !== null
+            ? $validated['contractValue']
+            : $project->contract_value;
+        $paymentTerm = $validated['paymentTerm'] ?? $project->payment_term;
+        $retention = $validated['retention'] ?? $project->retention;
+        $notes = array_key_exists('notes', $validated) ? $validated['notes'] : $project->notes;
+
+        $project->update([
+            'customer'       => $customer,
+            'name'           => $name,
+            'unit'           => $unit,
+            'location'       => $location,
+            'contract_value' => $contractValue,
+            'deadline'       => $deadline,
+            'start_date'     => $startDate,
+            'status'         => $status,
+            'pic'            => $pic,
+            'payment_term'   => $paymentTerm,
+            'retention'      => $retention,
+            'notes'          => $notes,
+        ]);
+
+        // Perbarui Attachments
+        if (isset($validated['attachments'])) {
+            CustomerProjectAttachment::where('project_id', $project->id)->delete();
+            foreach ($validated['attachments'] as $att) {
+                CustomerProjectAttachment::create([
+                    'project_id'   => $project->id,
+                    'file_name'    => $att['name'] ?? 'attachment.pdf',
+                    'file_type'    => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                    'file_size_kb' => (int) ($att['sizeKb'] ?? 100),
+                    'uploaded_by'  => $pic,
+                    'uploaded_at'  => date('Y-m-d'),
+                ]);
+            }
+        }
+
+        if (!$isDraft) {
+            $approvalId = $project->id;
+            $existingApp = Approval::find($approvalId);
+            if (!$existingApp) {
+                Approval::create([
+                    'id'              => $approvalId,
+                    'module'          => 'Project Customer',
+                    'request'         => $name,
+                    'summary'         => "Project untuk {$customer} di {$location}.",
+                    'unit'            => $unit,
+                    'submitted_by'    => $pic,
+                    'submitted_by_id' => strtolower(str_replace(' ', '', $pic)),
+                    'submitted_date'  => date('d M Y'),
+                    'period'          => date('M Y'),
+                    'amount'          => $contractValue ?? null,
+                    'amount_label'    => $contractValue
+                                            ? 'Rp ' . number_format($contractValue, 0, ',', '.')
+                                            : '-',
+                    'current_stage'   => 1,
+                    'priority'        => 'Medium',
+                    'status'          => 'Waiting',
+                    'due_date'        => $deadline,
+                    'notes'           => $notes,
+                ]);
+
+                $stages = [
+                    ['order' => 1, 'name' => 'Review Manajer Proyek',   'role' => 'Manajer Proyek'],
+                    ['order' => 2, 'name' => 'Persetujuan Keuangan',    'role' => 'Manajer Keuangan'],
+                    ['order' => 3, 'name' => 'Persetujuan Direktur',    'role' => 'Direktur'],
+                ];
+                foreach ($stages as $stg) {
+                    ApprovalStage::create([
+                        'approval_id' => $approvalId,
+                        'order'       => $stg['order'],
+                        'name'        => $stg['name'],
+                        'role'        => $stg['role'],
+                        'approver'    => null,
+                        'unit_scope'  => $unit,
+                    ]);
+                }
+
+                ApprovalHistory::create([
+                    'approval_id' => $approvalId,
+                    'actor'       => $pic,
+                    'role'        => 'PIC Project',
+                    'action'      => 'Pengajuan Dikirim dari Draft',
+                    'note'        => 'Project customer berhasil diajukan dari draf.',
+                    'at'          => date('d M Y, H:i'),
+                ]);
+            }
+        }
+
+        return response()->json([
+            'projectId'   => $project->id,
+            'submittedAt' => date('c'),
+            'message'     => $isDraft ? 'Draft berhasil diperbarui.' : 'Project customer berhasil diajukan ke antrean approval.',
+        ], 200);
+    }
+}
