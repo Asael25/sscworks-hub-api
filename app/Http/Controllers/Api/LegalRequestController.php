@@ -92,6 +92,8 @@ class LegalRequestController extends Controller
                         'comment' => $app->comment,
                     ];
                 }),
+                'created_at' => $item->created_at ? $item->created_at->toISOString() : null,
+                'updated_at' => $item->updated_at ? $item->updated_at->toISOString() : null,
             ];
         });
 
