@@ -45,6 +45,7 @@ class CustomerProjectController extends Controller
                         'file_name' => $a->file_name,
                         'file_type' => $a->file_type,
                         'file_size_kb' => (int) $a->file_size_kb,
+                        'file_url' => $a->file_url,
                         'uploaded_by' => $a->uploaded_by,
                     ];
                 }),
@@ -182,6 +183,7 @@ class CustomerProjectController extends Controller
                     'file_name'    => $att['name'] ?? 'attachment.pdf',
                     'file_type'    => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
                     'file_size_kb' => (int) ($att['sizeKb'] ?? 100),
+                    'file_url'     => $att['url'] ?? null,
                     'uploaded_by'  => $pic,
                     'uploaded_at'  => date('Y-m-d'),
                 ]);
@@ -336,6 +338,7 @@ class CustomerProjectController extends Controller
                     'file_name'    => $att['name'] ?? 'attachment.pdf',
                     'file_type'    => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
                     'file_size_kb' => (int) ($att['sizeKb'] ?? 100),
+                    'file_url'     => $att['url'] ?? null,
                     'uploaded_by'  => $pic,
                     'uploaded_at'  => date('Y-m-d'),
                 ]);

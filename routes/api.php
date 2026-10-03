@@ -29,3 +29,4 @@ Route::post('/legal-requests/{id}', [LegalRequestController::class, 'update']);
 
 Route::post('/auth/signin', [AuthController::class, 'signIn']);
 Route::get('/auth/users',   [AuthController::class, 'me']);
+Route::post('/upload', [App\Http\Controllers\Api\FileController::class, 'upload']);

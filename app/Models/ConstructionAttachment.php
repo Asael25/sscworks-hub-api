@@ -16,6 +16,7 @@ class ConstructionAttachment extends Model
         'file_name',
         'file_type',
         'file_size_kb',
+        'file_url',
         'uploaded_by',
         'uploaded_at',
     ];

@@ -46,6 +46,7 @@ class LegalRequestController extends Controller
                         'file_name' => $a->file_name,
                         'file_type' => $a->file_type,
                         'file_size_kb' => (int) $a->file_size_kb,
+                        'file_url' => $a->file_url,
                         'uploaded_by' => $a->uploaded_by,
                         'uploaded_at' => $a->uploaded_at,
                     ];
@@ -210,6 +211,7 @@ class LegalRequestController extends Controller
                     'file_name' => $att['name'] ?? 'attachment.pdf',
                     'file_type' => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
                     'file_size_kb' => $att['sizeKb'] ?? 100,
+                    'file_url' => $att['url'] ?? null,
                     'uploaded_by' => $pic,
                     'uploaded_at' => date('Y-m-d'),
                 ]);
@@ -265,6 +267,19 @@ class LegalRequestController extends Controller
                 'note'        => 'Legal request berhasil diajukan dan menunggu review.',
                 'at'          => date('d M Y, H:i'),
             ]);
+
+            if (!empty($validated['attachments'])) {
+                foreach ($validated['attachments'] as $att) {
+                    \App\Models\ApprovalAttachment::create([
+                        'id' => (string) rand(1000, 99999),
+                        'approval_id' => $approvalId,
+                        'name' => $att['name'] ?? 'attachment.pdf',
+                        'type' => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                        'size' => ($att['sizeKb'] ?? 100) . ' KB',
+                        'file_url' => $att['url'] ?? null,
+                    ]);
+                }
+            }
         }
         // ─────────────────────────────────────────────────────────────────
 
@@ -362,6 +377,7 @@ class LegalRequestController extends Controller
                     'file_name' => $att['name'] ?? 'attachment.pdf',
                     'file_type' => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
                     'file_size_kb' => $att['sizeKb'] ?? 100,
+                    'file_url' => $att['url'] ?? null,
                     'uploaded_by' => $pic,
                     'uploaded_at' => date('Y-m-d'),
                 ]);
@@ -436,6 +452,19 @@ class LegalRequestController extends Controller
                     'note'        => 'Draft legal request berhasil diajukan dan masuk ke antrean approval.',
                     'at'          => date('d M Y, H:i'),
                 ]);
+
+                if (!empty($validated['attachments'])) {
+                    foreach ($validated['attachments'] as $att) {
+                        \App\Models\ApprovalAttachment::create([
+                            'id' => (string) rand(1000, 99999),
+                            'approval_id' => $approvalId,
+                            'name' => $att['name'] ?? 'attachment.pdf',
+                            'type' => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                            'size' => ($att['sizeKb'] ?? 100) . ' KB',
+                            'file_url' => $att['url'] ?? null,
+                        ]);
+                    }
+                }
             }
         }
 

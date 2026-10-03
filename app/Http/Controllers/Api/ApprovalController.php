@@ -46,6 +46,7 @@ class ApprovalController extends Controller
                         'name' => $att->name,
                         'size' => $att->size,
                         'type' => $att->type,
+                        'url' => $att->file_url,
                     ];
                 }),
                 'history' => $item->history->map(function ($hst) {
