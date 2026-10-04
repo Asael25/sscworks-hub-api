@@ -30,3 +30,15 @@ Route::post('/legal-requests/{id}', [LegalRequestController::class, 'update']);
 Route::post('/auth/signin', [AuthController::class, 'signIn']);
 Route::get('/auth/users',   [AuthController::class, 'me']);
 Route::post('/upload', [App\Http\Controllers\Api\FileController::class, 'upload']);
+
+Route::get('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::class, 'index']);
+Route::post('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::class, 'store']);
+
+Route::get('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'index']);
+Route::post('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'storeConversation']);
+Route::get('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatController::class, 'getMessages']);
+Route::post('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatController::class, 'sendMessage']);
+Route::delete('/messages/{id}', [\App\Http\Controllers\Api\ChatController::class, 'deleteMessage']);
+Route::post('/conversations/{id}/attach-request', [\App\Http\Controllers\Api\ChatController::class, 'attachRequest']);
+
+
