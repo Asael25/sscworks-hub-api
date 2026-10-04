@@ -41,6 +41,24 @@ class ChatController extends Controller
         return response()->json($result);
     }
 
+    public function getUsers()
+    {
+        $users = \App\Models\User::all()->map(function ($u) {
+            $parts = explode(' ', $u->name);
+            $initials = (isset($parts[0][0]) ? $parts[0][0] : '') . (isset($parts[1][0]) ? $parts[1][0] : '');
+            return [
+                'id' => 'u-' . strtolower($u->username),
+                'name' => $u->name,
+                'role' => $u->role,
+                'unit' => $u->primary_unit ?: 'Head Office',
+                'initials' => strtoupper($initials) ?: 'US',
+                'online' => true,
+            ];
+        });
+
+        return response()->json($users);
+    }
+
     public function storeConversation(Request $request)
     {
         $validated = $request->validate([
@@ -53,6 +71,23 @@ class ChatController extends Controller
             'relatedRequestIds' => 'nullable|array',
         ]);
 
+        $members = $validated['memberIds'] ?? ['u-virga', 'u-andi'];
+
+        // If direct conversation, check if already exists between the same 2 members
+        if ($validated['type'] === 'direct' && count($members) >= 2) {
+            $mSorted = $members;
+            sort($mSorted);
+            $existing = Conversation::where('type', 'direct')->get()->first(function ($c) use ($mSorted) {
+                $cMembers = $c->member_ids ?? [];
+                sort($cMembers);
+                return $cMembers === $mSorted;
+            });
+
+            if ($existing) {
+                return response()->json($existing->toFrontendSummary());
+            }
+        }
+
         $id = 'c-' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '-', $validated['name'])) . '-' . rand(100, 999);
 
         $conversation = Conversation::create([
@@ -62,7 +97,7 @@ class ChatController extends Controller
             'description' => $validated['description'] ?? null,
             'unit' => $validated['unit'] ?? 'Head Office',
             'owner_id' => $validated['ownerId'] ?? 'u-virga',
-            'member_ids' => $validated['memberIds'] ?? ['u-virga', 'u-andi'],
+            'member_ids' => $members,
             'related_request_ids' => $validated['relatedRequestIds'] ?? [],
             'unread_count' => 0,
         ]);

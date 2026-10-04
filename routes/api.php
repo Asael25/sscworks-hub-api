@@ -35,6 +35,7 @@ Route::get('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::c
 Route::post('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::class, 'store']);
 
 Route::get('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'index']);
+Route::get('/chat-users', [\App\Http\Controllers\Api\ChatController::class, 'getUsers']);
 Route::post('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'storeConversation']);
 Route::get('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatController::class, 'getMessages']);
 Route::post('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatController::class, 'sendMessage']);
