@@ -46,8 +46,10 @@ class ChatController extends Controller
         $users = \App\Models\User::all()->map(function ($u) {
             $parts = explode(' ', $u->name);
             $initials = (isset($parts[0][0]) ? $parts[0][0] : '') . (isset($parts[1][0]) ? $parts[1][0] : '');
+            $uname = strtolower($u->username);
+            $id = ($uname === 'sultan' || $uname === 'andi') ? 'u-andi' : 'u-' . $uname;
             return [
-                'id' => 'u-' . strtolower($u->username),
+                'id' => $id,
                 'name' => $u->name,
                 'role' => $u->role,
                 'unit' => $u->primary_unit ?: 'Head Office',

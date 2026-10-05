@@ -14,11 +14,48 @@ use Illuminate\Support\Facades\Validator;
 
 class LegalRequestController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $requests = LegalRequest::with(['attachments', 'timeline', 'notes', 'outputDocuments', 'approvals'])
-            ->orderBy('submitted_at', 'desc')
-            ->get();
+        $query = LegalRequest::with(['attachments', 'timeline', 'notes', 'outputDocuments', 'approvals'])
+            ->orderBy('submitted_at', 'desc');
+
+        $identifier = $request->header('X-User-Identifier');
+        if ($identifier) {
+            $user = \App\Models\User::where('identifier', $identifier)->first();
+            if ($user) {
+                $isMultiUnitAdmin = in_array($user->role, [
+                    'IT & Bussiness System Support',
+                    'Admin Super',
+                ]) || (is_array($user->additional_units) && in_array('*', $user->additional_units));
+
+                if (!$isMultiUnitAdmin) {
+                    $allowedUnits = array_filter(array_merge([$user->primary_unit], $user->additional_units ?? []));
+                    
+                    $query->where(function ($q) use ($allowedUnits) {
+                        foreach ($allowedUnits as $unit) {
+                            if (!$unit) continue;
+                            $q->orWhere('unit', $unit);
+                            
+                            $dashHyphen = str_replace('—', '-', $unit);
+                            $dashEm = str_replace('-', '—', $unit);
+                            $q->orWhere('unit', $dashHyphen)
+                              ->orWhere('unit', $dashEm);
+                              
+                            $clean = trim(str_replace(['SSC', 'Works', 'Cabang', '—', '-'], ' ', $unit));
+                            if (!empty($clean)) {
+                                $q->orWhere('unit', 'LIKE', '%' . $clean . '%');
+                                if (stripos($clean, 'Head Office') !== false) {
+                                    $hoDepts = ['Procurement', 'IT & Digital', 'Human Resources', 'Commercial', 'Accounting', 'Human Capital', 'Finance', 'Operations'];
+                                    $q->orWhereIn('unit', $hoDepts);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        $requests = $query->get();
 
         $formatted = $requests->map(function ($item) {
             return [
