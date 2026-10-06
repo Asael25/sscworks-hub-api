@@ -103,4 +103,141 @@ class ApprovalController extends Controller
 
         return response()->json($formatted);
     }
+
+    public function decide(Request $request, $id)
+    {
+        $approval = Approval::with(['stages', 'attachments', 'history'])->find($id);
+        if (!$approval) {
+            return response()->json(['message' => 'Pengajuan tidak ditemukan.'], 404);
+        }
+
+        $validated = $request->validate([
+            'decision' => 'required|in:approve,return,reject',
+            'reason' => 'nullable|string',
+        ]);
+
+        $decision = $validated['decision'];
+        $reason = $validated['reason'] ?? null;
+
+        $identifier = $request->header('X-User-Identifier');
+        $user = null;
+        if ($identifier) {
+            $user = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                ->first();
+        }
+
+        $actorName = $user ? $user->name : ($request->input('actor') ?: 'User');
+        $actorRole = $user ? $user->role : ($request->input('role') ?: 'Approver');
+
+        // Check if already finalized
+        if (in_array($approval->status, ['Approved', 'Rejected'])) {
+            return response()->json(['message' => 'Pengajuan ini sudah difinalisasi.'], 422);
+        }
+
+        $stages = $approval->stages()->orderBy('order')->get();
+        $currentStage = $stages->firstWhere('order', $approval->current_stage) ?? $stages->first();
+
+        // Check approver assignment if not superadmin
+        if ($currentStage && $user && $user->role !== 'Super Admin') {
+            if ($currentStage->approver && strtolower(trim($currentStage->approver)) !== strtolower(trim($user->name))) {
+                return response()->json(['message' => "Tahap aktif ditugaskan kepada {$currentStage->approver}."], 422);
+            }
+            if (!$currentStage->approver && $currentStage->role !== $user->role) {
+                return response()->json(['message' => "Tahap aktif ({$currentStage->name}) memerlukan role {$currentStage->role}."], 422);
+            }
+        }
+
+        $totalStages = $stages->count() ?: 1;
+        $actionLabel = 'Approved';
+
+        if ($decision === 'approve') {
+            $actionLabel = 'Approved';
+            if ($approval->current_stage < $totalStages) {
+                $approval->current_stage += 1;
+                $approval->status = 'In Review';
+            } else {
+                $approval->status = 'Approved';
+
+                // Sync parent record
+                if (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
+                    \App\Models\CustomerProject::where('id', $approval->id)->update(['status' => 'On Schedule']);
+                } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
+                    \App\Models\ConstructionWork::where('id', $approval->id)->update(['status' => 'On Schedule']);
+                } elseif (in_array($approval->module, ['Legal Operations', 'Legal'])) {
+                    \App\Models\LegalRequest::where('request_code', $approval->id)->orWhere('id', $approval->id)->update(['status' => 'completed']);
+                }
+            }
+        } elseif ($decision === 'return') {
+            $actionLabel = 'Returned';
+            $approval->status = 'Returned';
+        } else {
+            $actionLabel = 'Rejected';
+            $approval->status = 'Rejected';
+        }
+
+        $approval->save();
+
+        // Record history
+        \App\Models\ApprovalHistory::create([
+            'approval_id' => $approval->id,
+            'actor' => $actorName,
+            'role' => $actorRole,
+            'action' => $actionLabel,
+            'note' => $reason,
+            'at' => now()->translatedFormat('d M Y, H:i'),
+        ]);
+
+        $fresh = $approval->fresh(['stages', 'attachments', 'history']);
+
+        $formatted = [
+            'id' => $fresh->id,
+            'module' => $fresh->module,
+            'request' => $fresh->request,
+            'summary' => $fresh->summary,
+            'unit' => $fresh->unit,
+            'submittedBy' => $fresh->submitted_by,
+            'submittedById' => $fresh->submitted_by_id,
+            'submittedDate' => $fresh->submitted_date,
+            'period' => $fresh->period,
+            'amount' => $fresh->amount ? (float) $fresh->amount : null,
+            'amountLabel' => $fresh->amount_label,
+            'stages' => $fresh->stages->map(function ($stg) {
+                return [
+                    'order' => $stg->order,
+                    'name' => $stg->name,
+                    'role' => $stg->role,
+                    'approver' => $stg->approver,
+                    'unitScope' => $stg->unit_scope,
+                ];
+            }),
+            'currentStage' => $fresh->current_stage,
+            'priority' => $fresh->priority,
+            'status' => $fresh->status,
+            'dueDate' => $fresh->due_date,
+            'attachments' => $fresh->attachments->map(function ($att) {
+                return [
+                    'name' => $att->name,
+                    'size' => $att->size,
+                    'type' => $att->type,
+                    'url' => $att->file_url,
+                ];
+            }),
+            'history' => $fresh->history->map(function ($hst) {
+                return [
+                    'actor' => $hst->actor,
+                    'role' => $hst->role,
+                    'action' => $hst->action,
+                    'note' => $hst->note,
+                    'at' => $hst->at,
+                ];
+            }),
+            'notes' => $fresh->notes ?? '',
+        ];
+
+        return response()->json([
+            'message' => "Pengajuan berhasil di-{$actionLabel}.",
+            'item' => $formatted
+        ]);
+    }
 }

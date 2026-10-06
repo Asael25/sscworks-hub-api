@@ -13,6 +13,7 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::get('/approvals', [ApprovalController::class, 'index']);
+Route::post('/approvals/{id}/decide', [ApprovalController::class, 'decide']);
 
 Route::get('/construction-works',  [ConstructionController::class, 'index']);
 Route::post('/construction-works', [ConstructionController::class, 'store']);
@@ -46,5 +47,11 @@ Route::get('/system-users', [\App\Http\Controllers\Api\SystemUserController::cla
 Route::post('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'store']);
 Route::put('/system-users/{id}', [\App\Http\Controllers\Api\SystemUserController::class, 'update']);
 Route::post('/system-users/{id}/toggle-status', [\App\Http\Controllers\Api\SystemUserController::class, 'toggleStatus']);
+
+Route::get('/approval-workflows', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'index']);
+Route::post('/approval-workflows', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'store']);
+Route::put('/approval-workflows/{id}', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'update']);
+Route::delete('/approval-workflows/{id}', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'destroy']);
+Route::post('/approval-workflows/{id}/toggle-status', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'toggleStatus']);
 
 

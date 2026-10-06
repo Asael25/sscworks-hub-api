@@ -9,6 +9,7 @@ use App\Models\LegalTimelineEvent;
 use App\Models\Approval;
 use App\Models\ApprovalStage;
 use App\Models\ApprovalHistory;
+use App\Services\WorkflowEngine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -287,21 +288,18 @@ class LegalRequestController extends Controller
             ]);
 
             // Tahapan approval legal
-            $stages = [
-                ['order' => 1, 'name' => 'Review Tim Legal',      'role' => 'Legal Officer'],
-                ['order' => 2, 'name' => 'Persetujuan Manager',    'role' => 'Manager Legal'],
-                ['order' => 3, 'name' => 'Persetujuan Direktur',   'role' => 'Direktur'],
-            ];
-            foreach ($stages as $stg) {
-                ApprovalStage::create([
-                    'approval_id' => $approvalId,
-                    'order'       => $stg['order'],
-                    'name'        => $stg['name'],
-                    'role'        => $stg['role'],
-                    'approver'    => null,
-                    'unit_scope'  => $unit,
-                ]);
-            }
+            WorkflowEngine::attachStagesToApproval(
+                $approvalId,
+                'Legal Operations',
+                'Legal Request',
+                0,
+                $unit,
+                [
+                    ['order' => 1, 'name' => 'Review Tim Legal', 'role' => 'Legal Officer', 'unit_scope' => $unit],
+                    ['order' => 2, 'name' => 'Persetujuan Manager', 'role' => 'Manager Legal', 'unit_scope' => $unit],
+                    ['order' => 3, 'name' => 'Persetujuan Direktur', 'role' => 'Direktur', 'unit_scope' => $unit],
+                ]
+            );
 
             // Riwayat awal
             ApprovalHistory::create([
@@ -473,21 +471,18 @@ class LegalRequestController extends Controller
                     'notes'           => $validated['notes'] ?? null,
                 ]);
 
-                $stages = [
-                    ['order' => 1, 'name' => 'Review Tim Legal',      'role' => 'Legal Officer'],
-                    ['order' => 2, 'name' => 'Persetujuan Manager',    'role' => 'Manager Legal'],
-                    ['order' => 3, 'name' => 'Persetujuan Direktur',   'role' => 'Direktur'],
-                ];
-                foreach ($stages as $stg) {
-                    ApprovalStage::create([
-                        'approval_id' => $approvalId,
-                        'order'       => $stg['order'],
-                        'name'        => $stg['name'],
-                        'role'        => $stg['role'],
-                        'approver'    => null,
-                        'unit_scope'  => $unit,
-                    ]);
-                }
+                WorkflowEngine::attachStagesToApproval(
+                    $approvalId,
+                    'Legal Operations',
+                    'Legal Request',
+                    0,
+                    $unit,
+                    [
+                        ['order' => 1, 'name' => 'Review Tim Legal', 'role' => 'Legal Officer', 'unit_scope' => $unit],
+                        ['order' => 2, 'name' => 'Persetujuan Manager', 'role' => 'Manager Legal', 'unit_scope' => $unit],
+                        ['order' => 3, 'name' => 'Persetujuan Direktur', 'role' => 'Direktur', 'unit_scope' => $unit],
+                    ]
+                );
 
                 ApprovalHistory::create([
                     'approval_id' => $approvalId,

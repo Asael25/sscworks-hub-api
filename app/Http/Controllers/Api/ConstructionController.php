@@ -9,6 +9,7 @@ use App\Models\ConstructionAttachment;
 use App\Models\Approval;
 use App\Models\ApprovalStage;
 use App\Models\ApprovalHistory;
+use App\Services\WorkflowEngine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -280,20 +281,17 @@ class ConstructionController extends Controller
                 'notes'           => $validated['notes'] ?? null,
             ]);
 
-            $stages = [
-                ['order' => 1, 'name' => 'Review Manajer Proyek',   'role' => 'Manajer Proyek'],
-                ['order' => 2, 'name' => 'Persetujuan Direktur',    'role' => 'Direktur'],
-            ];
-            foreach ($stages as $stg) {
-                ApprovalStage::create([
-                    'approval_id' => $approvalId,
-                    'order'       => $stg['order'],
-                    'name'        => $stg['name'],
-                    'role'        => $stg['role'],
-                    'approver'    => null,
-                    'unit_scope'  => $unit,
-                ]);
-            }
+            WorkflowEngine::attachStagesToApproval(
+                $approvalId,
+                'Internal Construction',
+                'Master Pekerjaan',
+                (float) ($validated['contractValue'] ?? 0),
+                $unit,
+                [
+                    ['order' => 1, 'name' => 'Review Manajer Proyek', 'role' => 'Manajer Proyek', 'unit_scope' => $unit],
+                    ['order' => 2, 'name' => 'Persetujuan Direktur', 'role' => 'Direktur', 'unit_scope' => $unit],
+                ]
+            );
 
             ApprovalHistory::create([
                 'approval_id' => $approvalId,
@@ -446,20 +444,17 @@ class ConstructionController extends Controller
                     'notes'           => $notes,
                 ]);
 
-                $stages = [
-                    ['order' => 1, 'name' => 'Review Manajer Proyek',   'role' => 'Manajer Proyek'],
-                    ['order' => 2, 'name' => 'Persetujuan Direktur',    'role' => 'Direktur'],
-                ];
-                foreach ($stages as $stg) {
-                    ApprovalStage::create([
-                        'approval_id' => $approvalId,
-                        'order'       => $stg['order'],
-                        'name'        => $stg['name'],
-                        'role'        => $stg['role'],
-                        'approver'    => null,
-                        'unit_scope'  => $unit,
-                    ]);
-                }
+                WorkflowEngine::attachStagesToApproval(
+                    $approvalId,
+                    'Internal Construction',
+                    'Master Pekerjaan',
+                    (float) ($contractValue ?? 0),
+                    $unit,
+                    [
+                        ['order' => 1, 'name' => 'Review Manajer Proyek', 'role' => 'Manajer Proyek', 'unit_scope' => $unit],
+                        ['order' => 2, 'name' => 'Persetujuan Direktur', 'role' => 'Direktur', 'unit_scope' => $unit],
+                    ]
+                );
 
                 ApprovalHistory::create([
                     'approval_id' => $approvalId,
