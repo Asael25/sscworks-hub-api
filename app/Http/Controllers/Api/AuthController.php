@@ -28,6 +28,12 @@ class AuthController extends Controller
             ], 401);
         }
 
+        if ($user->hub_access === 'Suspended') {
+            return response()->json([
+                'message' => 'Akun Anda sedang dinonaktifkan (Suspended). Silakan hubungi Super Admin.'
+            ], 403);
+        }
+
         $remember = $request->boolean('remember', false);
         $expiresAt = now()->addHours($remember ? 720 : 8)->timestamp * 1000;
 

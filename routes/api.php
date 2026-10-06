@@ -42,4 +42,9 @@ Route::post('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatContr
 Route::delete('/messages/{id}', [\App\Http\Controllers\Api\ChatController::class, 'deleteMessage']);
 Route::post('/conversations/{id}/attach-request', [\App\Http\Controllers\Api\ChatController::class, 'attachRequest']);
 
+Route::get('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'index']);
+Route::post('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'store']);
+Route::put('/system-users/{id}', [\App\Http\Controllers\Api\SystemUserController::class, 'update']);
+Route::post('/system-users/{id}/toggle-status', [\App\Http\Controllers\Api\SystemUserController::class, 'toggleStatus']);
+
 

@@ -15,30 +15,32 @@ class ApprovalController extends Controller
 
         $identifier = $request->header('X-User-Identifier');
         if ($identifier) {
-            $user = \App\Models\User::where('identifier', $identifier)->first();
+            $user = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                ->first();
             if ($user) {
-                // User dengan role IT / Super Admin atau multi-unit memiliki akses penuh ke seluruh cabang/unit
-                $isMultiUnitAdmin = in_array($user->role, [
-                    'IT & Bussiness System Support',
-                    'Admin Super',
-                ]) || (is_array($user->additional_units) && in_array('*', $user->additional_units));
+                $additional = is_array($user->additional_units)
+                    ? $user->additional_units
+                    : json_decode($user->additional_units ?? '[]', true);
+
+                $isMultiUnitAdmin = in_array($user->role, ['Super Admin', 'Admin Super'])
+                    || strtolower($user->identifier) === 'rudi@sscworks.com'
+                    || strtolower($user->username ?? '') === 'rudi'
+                    || (is_array($additional) && in_array('*', $additional));
 
                 if (!$isMultiUnitAdmin) {
-                    // Batasi hanya unit utama (primary_unit) dan unit tambahan (additional_units)
-                    $allowedUnits = array_filter(array_merge([$user->primary_unit], $user->additional_units ?? []));
+                    $allowedUnits = array_filter(array_merge([$user->primary_unit], $additional ?? []));
                     
                     $query->where(function ($q) use ($allowedUnits) {
                         foreach ($allowedUnits as $unit) {
-                            if (!$unit) continue;
+                            if (!$unit || $unit === '*') continue;
                             $q->orWhere('unit', $unit);
                             
-                            // Normalisasi dash (-) dan em-dash (—)
                             $dashHyphen = str_replace('—', '-', $unit);
                             $dashEm = str_replace('-', '—', $unit);
                             $q->orWhere('unit', $dashHyphen)
                               ->orWhere('unit', $dashEm);
                               
-                            // Match kata kunci cabang (misal: "Head Office", "Surabaya", "Balikpapan")
                             $clean = trim(str_replace(['SSC', 'Works', 'Cabang', '—', '-'], ' ', $unit));
                             if (!empty($clean)) {
                                 $q->orWhere('unit', 'LIKE', '%' . $clean . '%');

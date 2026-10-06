@@ -39,6 +39,18 @@ class UserSeeder extends Seeder
 
         $users = [
             [
+                'identifier' => 'superadmin@sscworks.com',
+                'username' => 'Superadmin',
+                'password' => Hash::make('adminsuper'),
+                'name' => 'Super Administrator',
+                'role' => 'Super Admin',
+                'primary_unit' => 'SSC Works — Head Office',
+                'additional_units' => json_encode(['*']),
+                'hub_access' => 'Active',
+                'menu_access' => json_encode($allMenus),
+                'authorities' => json_encode($allAuthorities),
+            ],
+            [
                 'identifier' => 'virga@sscworks.com',
                 'username' => 'Virga',
                 'password' => Hash::make('adminap'), // Hashed password
@@ -89,7 +101,7 @@ class UserSeeder extends Seeder
                 'name' => 'Fachrudi Putra Pamuji',
                 'role' => 'IT & Bussiness System Support',
                 'primary_unit' => 'SSC Works — Head Office',
-                'additional_units' => json_encode(["SSC Works - Surabaya"]),
+                'additional_units' => json_encode(['*']),
                 'hub_access' => 'Active',
                 'menu_access' => json_encode($allMenus),
                 'authorities' => json_encode($allAuthorities),

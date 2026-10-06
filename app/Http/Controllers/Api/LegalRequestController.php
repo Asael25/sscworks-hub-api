@@ -21,19 +21,25 @@ class LegalRequestController extends Controller
 
         $identifier = $request->header('X-User-Identifier');
         if ($identifier) {
-            $user = \App\Models\User::where('identifier', $identifier)->first();
+            $user = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                ->first();
             if ($user) {
-                $isMultiUnitAdmin = in_array($user->role, [
-                    'IT & Bussiness System Support',
-                    'Admin Super',
-                ]) || (is_array($user->additional_units) && in_array('*', $user->additional_units));
+                $additional = is_array($user->additional_units)
+                    ? $user->additional_units
+                    : json_decode($user->additional_units ?? '[]', true);
+
+                $isMultiUnitAdmin = in_array($user->role, ['Super Admin', 'Admin Super'])
+                    || strtolower($user->identifier) === 'rudi@sscworks.com'
+                    || strtolower($user->username ?? '') === 'rudi'
+                    || (is_array($additional) && in_array('*', $additional));
 
                 if (!$isMultiUnitAdmin) {
-                    $allowedUnits = array_filter(array_merge([$user->primary_unit], $user->additional_units ?? []));
+                    $allowedUnits = array_filter(array_merge([$user->primary_unit], $additional ?? []));
                     
                     $query->where(function ($q) use ($allowedUnits) {
                         foreach ($allowedUnits as $unit) {
-                            if (!$unit) continue;
+                            if (!$unit || $unit === '*') continue;
                             $q->orWhere('unit', $unit);
                             
                             $dashHyphen = str_replace('—', '-', $unit);
@@ -45,7 +51,7 @@ class LegalRequestController extends Controller
                             if (!empty($clean)) {
                                 $q->orWhere('unit', 'LIKE', '%' . $clean . '%');
                                 if (stripos($clean, 'Head Office') !== false) {
-                                    $hoDepts = ['Procurement', 'IT & Digital', 'Human Resources', 'Commercial', 'Accounting', 'Human Capital', 'Finance', 'Operations'];
+                                    $hoDepts = ['Procurement', 'IT & Digital', 'Human Resources', 'Commercial', 'Accounting', 'Human Capital', 'Finance', 'Operations', 'Legal'];
                                     $q->orWhereIn('unit', $hoDepts);
                                 }
                             }
