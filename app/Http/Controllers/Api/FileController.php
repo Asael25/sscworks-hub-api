@@ -11,7 +11,7 @@ class FileController extends Controller
     public function upload(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|max:5120', // max 5MB
+            'file' => 'required|file|max:30720', // max 30MB
         ]);
 
         $file = $request->file('file');
