@@ -104,14 +104,22 @@ class ChatController extends Controller
             'unread_count' => 0,
         ]);
 
-        return response()->json($conversation->toFrontendSummary(), 201);
+        $summary = $conversation->toFrontendSummary();
+
+        try {
+            event(new \App\Events\ConversationUpdated($summary));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast failed in storeConversation: ' . $e->getMessage());
+        }
+
+        return response()->json($summary, 201);
     }
 
     public function getMessages(Request $request, $conversationId)
     {
         $messages = ChatMessage::where('conversation_id', $conversationId)
-                               ->orderBy('sent_at', 'asc')
-                               ->get();
+                                ->orderBy('sent_at', 'asc')
+                                ->get();
 
         return response()->json($messages->map(fn($m) => $m->toFrontendFormat()));
     }
@@ -156,7 +164,17 @@ class ChatController extends Controller
         // Touch conversation updated_at
         $conversation->touch();
 
-        return response()->json($message->toFrontendFormat(), 201);
+        $msgFormat = $message->toFrontendFormat();
+
+        // Broadcast real-time message via Reverb WebSocket
+        try {
+            event(new \App\Events\MessageSent($msgFormat));
+            event(new \App\Events\ConversationUpdated($conversation->toFrontendSummary()));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast failed in sendMessage: ' . $e->getMessage());
+        }
+
+        return response()->json($msgFormat, 201);
     }
 
     public function deleteMessage($id)
@@ -167,7 +185,15 @@ class ChatController extends Controller
         }
 
         $message->update(['deleted' => true]);
-        return response()->json($message->toFrontendFormat());
+        $msgFormat = $message->toFrontendFormat();
+
+        try {
+            event(new \App\Events\MessageDeleted($message->id, $message->conversation_id));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast failed in deleteMessage: ' . $e->getMessage());
+        }
+
+        return response()->json($msgFormat);
     }
 
     public function attachRequest(Request $request, $conversationId)
@@ -183,7 +209,15 @@ class ChatController extends Controller
             $conversation->update(['related_request_ids' => $current]);
         }
 
-        return response()->json($conversation->toFrontendSummary());
+        $summary = $conversation->toFrontendSummary();
+
+        try {
+            event(new \App\Events\ConversationUpdated($summary));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast failed in attachRequest: ' . $e->getMessage());
+        }
+
+        return response()->json($summary);
     }
 
     private function seedInitialChat()
