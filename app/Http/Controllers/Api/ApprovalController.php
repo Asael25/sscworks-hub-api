@@ -140,8 +140,14 @@ class ApprovalController extends Controller
 
         // Check approver assignment if not superadmin
         if ($currentStage && $user && $user->role !== 'Super Admin') {
-            if ($currentStage->approver && strtolower(trim($currentStage->approver)) !== strtolower(trim($user->name))) {
-                return response()->json(['message' => "Tahap aktif ditugaskan kepada {$currentStage->approver}."], 422);
+            if ($currentStage->approver) {
+                $targetApprover = strtolower(trim($currentStage->approver));
+                $isNameMatch = strtolower(trim($user->name)) === $targetApprover;
+                $isUsernameMatch = strtolower(trim($user->username ?? '')) === $targetApprover;
+                $isEmailMatch = strtolower(trim($user->identifier ?? '')) === $targetApprover;
+                if (!$isNameMatch && !$isUsernameMatch && !$isEmailMatch) {
+                    return response()->json(['message' => "Tahap aktif ditugaskan kepada {$currentStage->approver}."], 422);
+                }
             }
             if (!$currentStage->approver && $currentStage->role !== $user->role) {
                 return response()->json(['message' => "Tahap aktif ({$currentStage->name}) memerlukan role {$currentStage->role}."], 422);
