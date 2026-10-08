@@ -141,33 +141,39 @@ class CustomerProjectController extends Controller
         $isDraft = $request->boolean('isDraft');
 
         $rules = $isDraft ? [
-            'customer'      => 'nullable|string',
-            'name'          => 'nullable|string',
-            'unit'          => 'nullable|string',
-            'location'      => 'nullable|string',
-            'contractValue' => 'nullable|numeric',
-            'pic'           => 'nullable|string',
-            'startDate'     => 'nullable|string',
-            'deadline'      => 'nullable|string',
-            'paymentTerm'   => 'nullable|string',
-            'retention'     => 'nullable|string',
-            'notes'         => 'nullable|string',
-            'attachments'   => 'nullable|array',
-            'isDraft'       => 'nullable|boolean',
+            'customer'       => 'nullable|string',
+            'name'           => 'nullable|string',
+            'unit'           => 'nullable|string',
+            'location'       => 'nullable|string',
+            'contractValue'  => 'nullable|numeric',
+            'contractNumber' => 'nullable|string',
+            'poNumber'       => 'nullable|string',
+            'target'         => 'nullable|numeric',
+            'pic'            => 'nullable|string',
+            'startDate'      => 'nullable|string',
+            'deadline'       => 'nullable|string',
+            'paymentTerm'    => 'nullable|string',
+            'retention'      => 'nullable|string',
+            'notes'          => 'nullable|string',
+            'attachments'    => 'nullable|array',
+            'isDraft'        => 'nullable|boolean',
         ] : [
-            'customer'      => 'required|string',
-            'name'          => 'required|string',
-            'unit'          => 'required|string',
-            'location'      => 'required|string',
-            'contractValue' => 'nullable|numeric',
-            'pic'           => 'required|string',
-            'startDate'     => 'required|string',
-            'deadline'      => 'required|string',
-            'paymentTerm'   => 'nullable|string',
-            'retention'     => 'nullable|string',
-            'notes'         => 'nullable|string',
-            'attachments'   => 'nullable|array',
-            'isDraft'       => 'nullable|boolean',
+            'customer'       => 'required|string',
+            'name'           => 'required|string',
+            'unit'           => 'required|string',
+            'location'       => 'required|string',
+            'contractValue'  => 'nullable|numeric',
+            'contractNumber' => 'nullable|string',
+            'poNumber'       => 'nullable|string',
+            'target'         => 'nullable|numeric',
+            'pic'            => 'required|string',
+            'startDate'      => 'required|string',
+            'deadline'       => 'required|string',
+            'paymentTerm'    => 'nullable|string',
+            'retention'      => 'nullable|string',
+            'notes'          => 'nullable|string',
+            'attachments'    => 'nullable|array',
+            'isDraft'        => 'nullable|boolean',
         ];
 
         $validator = Validator::make($request->all(), $rules);
@@ -192,18 +198,21 @@ class CustomerProjectController extends Controller
         $pic = !empty($validated['pic']) ? $validated['pic'] : 'PIC (Draft)';
         $startDate = !empty($validated['startDate']) ? $validated['startDate'] : date('Y-m-d');
         $deadline = !empty($validated['deadline']) ? $validated['deadline'] : date('Y-m-d', strtotime('+30 days'));
+        $contractNumber = !empty($validated['contractNumber']) ? $validated['contractNumber'] : ('SPK-' . strtoupper(substr(md5($projectId), 0, 8)));
+        $poNumber = !empty($validated['poNumber']) ? $validated['poNumber'] : ('PO-' . strtoupper(substr(md5($projectId . 'po'), 0, 6)));
+        $target = isset($validated['target']) ? (float) $validated['target'] : 0;
         $status = $isDraft ? 'Draft' : 'Waiting Approval';
 
         $project = CustomerProject::create([
             'id'             => $projectId,
             'customer'       => $customer,
             'name'           => $name,
-            'contract_number'=> 'SPK-' . strtoupper(substr(md5($projectId), 0, 8)),
-            'po_number'      => 'PO-' . strtoupper(substr(md5($projectId . 'po'), 0, 6)),
+            'contract_number'=> $contractNumber,
+            'po_number'      => $poNumber,
             'unit'           => $unit,
             'location'       => $location,
             'contract_value' => $validated['contractValue'] ?? 0,
-            'target'         => 0,
+            'target'         => $target,
             'actual'         => 0,
             'deadline'       => $deadline,
             'start_date'     => $startDate,
@@ -296,33 +305,39 @@ class CustomerProjectController extends Controller
         $isDraft = $request->boolean('isDraft');
 
         $rules = $isDraft ? [
-            'customer'      => 'nullable|string',
-            'name'          => 'nullable|string',
-            'unit'          => 'nullable|string',
-            'location'      => 'nullable|string',
-            'contractValue' => 'nullable|numeric',
-            'pic'           => 'nullable|string',
-            'startDate'     => 'nullable|string',
-            'deadline'      => 'nullable|string',
-            'paymentTerm'   => 'nullable|string',
-            'retention'     => 'nullable|string',
-            'notes'         => 'nullable|string',
-            'attachments'   => 'nullable|array',
-            'isDraft'       => 'nullable|boolean',
+            'customer'       => 'nullable|string',
+            'name'           => 'nullable|string',
+            'unit'           => 'nullable|string',
+            'location'       => 'nullable|string',
+            'contractValue'  => 'nullable|numeric',
+            'contractNumber' => 'nullable|string',
+            'poNumber'       => 'nullable|string',
+            'target'         => 'nullable|numeric',
+            'pic'            => 'nullable|string',
+            'startDate'      => 'nullable|string',
+            'deadline'       => 'nullable|string',
+            'paymentTerm'    => 'nullable|string',
+            'retention'      => 'nullable|string',
+            'notes'          => 'nullable|string',
+            'attachments'    => 'nullable|array',
+            'isDraft'        => 'nullable|boolean',
         ] : [
-            'customer'      => 'required|string',
-            'name'          => 'required|string',
-            'unit'          => 'required|string',
-            'location'      => 'required|string',
-            'contractValue' => 'nullable|numeric',
-            'pic'           => 'required|string',
-            'startDate'     => 'required|string',
-            'deadline'      => 'required|string',
-            'paymentTerm'   => 'nullable|string',
-            'retention'     => 'nullable|string',
-            'notes'         => 'nullable|string',
-            'attachments'   => 'nullable|array',
-            'isDraft'       => 'nullable|boolean',
+            'customer'       => 'required|string',
+            'name'           => 'required|string',
+            'unit'           => 'required|string',
+            'location'       => 'required|string',
+            'contractValue'  => 'nullable|numeric',
+            'contractNumber' => 'nullable|string',
+            'poNumber'       => 'nullable|string',
+            'target'         => 'nullable|numeric',
+            'pic'            => 'required|string',
+            'startDate'      => 'required|string',
+            'deadline'       => 'required|string',
+            'paymentTerm'    => 'nullable|string',
+            'retention'      => 'nullable|string',
+            'notes'          => 'nullable|string',
+            'attachments'    => 'nullable|array',
+            'isDraft'        => 'nullable|boolean',
         ];
 
         $validator = Validator::make($request->all(), $rules);
@@ -344,6 +359,9 @@ class CustomerProjectController extends Controller
         $pic = !empty($validated['pic']) ? $validated['pic'] : $project->pic;
         $startDate = !empty($validated['startDate']) ? $validated['startDate'] : $project->start_date;
         $deadline = !empty($validated['deadline']) ? $validated['deadline'] : $project->deadline;
+        $contractNumber = !empty($validated['contractNumber']) ? $validated['contractNumber'] : $project->contract_number;
+        $poNumber = !empty($validated['poNumber']) ? $validated['poNumber'] : $project->po_number;
+        $target = isset($validated['target']) ? (float) $validated['target'] : $project->target;
         $contractValue = array_key_exists('contractValue', $validated) && $validated['contractValue'] !== null
             ? $validated['contractValue']
             : $project->contract_value;
@@ -354,9 +372,12 @@ class CustomerProjectController extends Controller
         $project->update([
             'customer'       => $customer,
             'name'           => $name,
+            'contract_number'=> $contractNumber,
+            'po_number'      => $poNumber,
             'unit'           => $unit,
             'location'       => $location,
             'contract_value' => $contractValue,
+            'target'         => $target,
             'deadline'       => $deadline,
             'start_date'     => $startDate,
             'status'         => $status,
