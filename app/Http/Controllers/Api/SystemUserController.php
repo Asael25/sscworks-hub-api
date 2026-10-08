@@ -86,9 +86,44 @@ class SystemUserController extends Controller
         ], 201);
     }
 
+    private function findUserByIdentifier($id, ?string $fallbackEmail = null): ?User
+    {
+        if (is_numeric($id)) {
+            $user = User::find($id);
+            if ($user) return $user;
+        }
+
+        if (is_string($id) && str_starts_with(strtoupper($id), 'USR-')) {
+            $num = (int) preg_replace('/\D/', '', $id);
+            if ($num > 0) {
+                $user = User::find($num);
+                if ($user) return $user;
+            }
+        }
+
+        if (is_string($id)) {
+            $user = User::whereRaw('LOWER(identifier) = ?', [strtolower(trim($id))])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower(trim($id))])
+                ->first();
+            if ($user) return $user;
+        }
+
+        if ($fallbackEmail) {
+            $cleanEmail = strtolower(trim($fallbackEmail));
+            $user = User::whereRaw('LOWER(identifier) = ?', [$cleanEmail])->first();
+            if ($user) return $user;
+        }
+
+        return null;
+    }
+
     public function update(Request $request, $id)
     {
-        $user = User::findOrFail($id);
+        $user = $this->findUserByIdentifier($id, $request->input('email'));
+
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan.'], 404);
+        }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
@@ -122,7 +157,7 @@ class SystemUserController extends Controller
             'authorities' => $validated['authorities'] ?? [],
         ];
 
-        if (!empty($validated['password'])) {
+        if (!empty($validated['password']) && trim($validated['password']) !== '') {
             $updateData['password'] = Hash::make($validated['password']);
         }
 
@@ -145,7 +180,12 @@ class SystemUserController extends Controller
 
     public function toggleStatus($id)
     {
-        $user = User::findOrFail($id);
+        $user = $this->findUserByIdentifier($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan.'], 404);
+        }
+
         $newStatus = $user->hub_access === 'Active' ? 'Suspended' : 'Active';
         $user->update(['hub_access' => $newStatus]);
 
@@ -154,5 +194,17 @@ class SystemUserController extends Controller
             'hubAccess' => $user->hub_access,
             'name' => $user->name,
         ]);
+    }
+
+    public function destroy($id)
+    {
+        $user = $this->findUserByIdentifier($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan.'], 404);
+        }
+
+        $user->delete();
+        return response()->json(['message' => 'User berhasil dihapus.']);
     }
 }

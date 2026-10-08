@@ -47,6 +47,7 @@ Route::post('/conversations/{id}/attach-request', [\App\Http\Controllers\Api\Cha
 Route::get('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'index']);
 Route::post('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'store']);
 Route::put('/system-users/{id}', [\App\Http\Controllers\Api\SystemUserController::class, 'update']);
+Route::delete('/system-users/{id}', [\App\Http\Controllers\Api\SystemUserController::class, 'destroy']);
 Route::post('/system-users/{id}/toggle-status', [\App\Http\Controllers\Api\SystemUserController::class, 'toggleStatus']);
 
 Route::get('/approval-workflows', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'index']);
