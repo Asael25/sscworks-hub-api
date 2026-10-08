@@ -122,14 +122,43 @@ class CustomerProjectController extends Controller
                         'date' => $p->date,
                     ];
                 }),
-                'approvals' => $item->approvals->map(function ($app) {
-                    return [
-                        'stage' => $app->stage,
-                        'approver' => $app->approver,
-                        'date' => $app->date,
-                        'state' => $app->state,
-                    ];
-                }),
+                'approvals' => $item->approvals->isNotEmpty()
+                    ? $item->approvals->map(function ($app) {
+                        return [
+                            'stage' => $app->stage,
+                            'approver' => $app->approver,
+                            'date' => $app->date,
+                            'state' => $app->state,
+                        ];
+                    })
+                    : (function () use ($item) {
+                        $ga = \App\Models\Approval::with('stages')->find($item->id);
+                        if (!$ga || $ga->stages->isEmpty()) {
+                            return [];
+                        }
+                        return $ga->stages->map(function ($st) use ($ga) {
+                            $state = 'Pending';
+                            if ($ga->status === 'Approved') {
+                                $state = 'Approved';
+                            } elseif ($ga->status === 'Returned' || $ga->status === 'Rejected') {
+                                $state = 'Returned';
+                            } else {
+                                if ($st->order < $ga->current_stage) {
+                                    $state = 'Approved';
+                                } elseif ($st->order == $ga->current_stage) {
+                                    $state = 'Waiting';
+                                } else {
+                                    $state = 'Pending';
+                                }
+                            }
+                            return [
+                                'stage' => $st->name,
+                                'approver' => $st->approver ? "{$st->approver} ({$st->role})" : $st->role,
+                                'date' => $st->order < $ga->current_stage ? $ga->submitted_date : null,
+                                'state' => $state,
+                            ];
+                        })->values();
+                    })(),
             ];
         });
 
