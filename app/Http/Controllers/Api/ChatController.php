@@ -161,7 +161,8 @@ class ChatController extends Controller
             'sent_at' => Carbon::now(),
         ]);
 
-        // Touch conversation updated_at
+        // Increment unread count and touch conversation
+        $conversation->increment('unread_count');
         $conversation->touch();
 
         $msgFormat = $message->toFrontendFormat();
@@ -175,6 +176,21 @@ class ChatController extends Controller
         }
 
         return response()->json($msgFormat, 201);
+    }
+
+    public function markRead($conversationId)
+    {
+        $conversation = Conversation::find($conversationId);
+        if ($conversation) {
+            $conversation->update(['unread_count' => 0]);
+            try {
+                event(new \App\Events\ConversationUpdated($conversation->toFrontendSummary()));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Broadcast failed in markRead: ' . $e->getMessage());
+            }
+        }
+
+        return response()->json(['success' => true]);
     }
 
     public function deleteMessage($id)

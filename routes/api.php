@@ -43,6 +43,7 @@ Route::get('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatContro
 Route::post('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatController::class, 'sendMessage']);
 Route::delete('/messages/{id}', [\App\Http\Controllers\Api\ChatController::class, 'deleteMessage']);
 Route::post('/conversations/{id}/attach-request', [\App\Http\Controllers\Api\ChatController::class, 'attachRequest']);
+Route::post('/conversations/{id}/read', [\App\Http\Controllers\Api\ChatController::class, 'markRead']);
 
 Route::get('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'index']);
 Route::post('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'store']);
