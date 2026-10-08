@@ -55,9 +55,9 @@ class UserSeeder extends Seeder
                 'username' => 'Virga',
                 'password' => Hash::make('adminap'), // Hashed password
                 'name' => 'Virga Damayanti',
-                'role' => 'Account Payable',
+                'role' => 'Unit Head',
                 'primary_unit' => 'SSC Works — Head Office',
-                'additional_units' => json_encode([]),
+                'additional_units' => json_encode(['SSC Works — Balikpapan', 'SSC Works — Surabaya']),
                 'hub_access' => 'Active',
                 'menu_access' => json_encode($allMenus),
                 'authorities' => json_encode($allAuthorities),

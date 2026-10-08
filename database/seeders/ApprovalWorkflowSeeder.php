@@ -62,7 +62,7 @@ class ApprovalWorkflowSeeder extends Seeder
                 'mode' => 'Layered',
                 'status' => 'Active',
                 'stages' => [
-                    ['order' => 1, 'role' => 'Unit Head', 'approver' => null, 'unit_scope' => 'Same unit', 'threshold' => 0, 'required' => true],
+                    ['order' => 1, 'role' => 'Unit Head', 'approver' => 'Virga', 'unit_scope' => 'All units', 'threshold' => 0, 'required' => true],
                     ['order' => 2, 'role' => 'General Manager', 'approver' => 'Lazuardhi Hilman Lathif', 'unit_scope' => 'All units', 'threshold' => 0, 'required' => true],
                 ],
             ],
