@@ -167,7 +167,47 @@ class ApprovalController extends Controller
 
                 // Sync parent record
                 if (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
-                    \App\Models\CustomerProject::where('id', $approval->id)->update(['status' => 'On Schedule']);
+                    if (str_starts_with($approval->id, 'CSR-') || str_contains($approval->request, 'Site Report')) {
+                        $projectName = trim(explode('·', $approval->request)[1] ?? '');
+                        $project = \App\Models\CustomerProject::where('name', $projectName)->first();
+
+                        $actual = 0;
+                        $target = 0;
+                        $period = date('Y-m-d');
+                        $reportedBy = $approval->submitted_by;
+
+                        if (preg_match('/Progres Realisasi (\d+(\.\d+)?)%/', $approval->summary, $mActual)) {
+                            $actual = (float) $mActual[1];
+                        }
+                        if (preg_match('/Target (\d+(\.\d+)?)%/', $approval->summary, $mTarget)) {
+                            $target = (float) $mTarget[1];
+                        }
+                        if (preg_match('/Laporan Mingguan \(([^)]+)\)/', $approval->summary, $mPeriod)) {
+                            $period = $mPeriod[1];
+                        }
+
+                        if ($project) {
+                            $project->update([
+                                'actual' => $actual,
+                                'status' => $actual >= 100 ? 'Completed' : 'On Schedule',
+                            ]);
+
+                            \App\Models\CustomerProjectWeeklyProgress::updateOrCreate(
+                                [
+                                    'project_id' => $project->id,
+                                    'period'     => $period,
+                                ],
+                                [
+                                    'target'      => $target,
+                                    'actual'      => $actual,
+                                    'note'        => $approval->notes ?? "Site report mingguan disetujui.",
+                                    'reported_by' => $reportedBy,
+                                ]
+                            );
+                        }
+                    } else {
+                        \App\Models\CustomerProject::where('id', $approval->id)->update(['status' => 'On Schedule']);
+                    }
                 } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
                     \App\Models\ConstructionWork::where('id', $approval->id)->update(['status' => 'On Schedule']);
                 } elseif (in_array($approval->module, ['Legal Operations', 'Legal'])) {
