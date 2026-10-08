@@ -183,17 +183,53 @@ class ApprovalWorkflowController extends Controller
         return response()->json($this->formatSingleWorkflow($workflow));
     }
 
+    public static function getModuleVariants(string $module): array
+    {
+        $m = trim($module);
+        $map = [
+            'Internal Construction' => ['Internal Construction', 'Konstruksi Internal', 'Konstruksi'],
+            'Konstruksi Internal'   => ['Internal Construction', 'Konstruksi Internal', 'Konstruksi'],
+            'Legal Operations'      => ['Legal Operations', 'Legal', 'Legalitas'],
+            'Legal'                 => ['Legal Operations', 'Legal', 'Legalitas'],
+            'Project Customer'      => ['Project Customer', 'Customer Project'],
+            'Cashflow'              => ['Cashflow', 'Arus Kas'],
+            'Budgeting'             => ['Budgeting', 'Anggaran'],
+            'Contract'              => ['Contract', 'Kontrak'],
+        ];
+
+        return $map[$m] ?? [$m];
+    }
+
     /**
      * Memperbarui secara REALTIME timeline approval yang berstatus 'Waiting' / 'In Review'
      * untuk modul terkait agar langsung mencerminkan tahapan baru yang disetting Super Admin.
      */
-    private function syncRealtimeApprovalTimeline(ApprovalWorkflow $workflow)
+    public function syncRealtimeApprovalTimeline(ApprovalWorkflow $workflow)
     {
         try {
-            // Cari pengajuan aktif di Approval Center yang sesuai modul ini
-            $activeApprovals = Approval::where('module', $workflow->module)
-                ->whereIn('status', ['Waiting', 'In Review'])
-                ->get();
+            $variants = self::getModuleVariants($workflow->module);
+
+            $query = Approval::whereIn('module', $variants)
+                ->whereIn('status', ['Waiting', 'In Review']);
+
+            if ($workflow->process === 'Site Report') {
+                $query->where(function ($q) {
+                    $q->where('id', 'LIKE', 'CSR-%')
+                      ->orWhere('request', 'LIKE', '%Site Report%');
+                });
+            } elseif ($workflow->process === 'Master Project') {
+                $query->where(function ($q) {
+                    $q->where('id', 'LIKE', 'CPR-%')
+                      ->orWhere('id', 'LIKE', 'PRJ-%');
+                })->where('id', 'NOT LIKE', 'CSR-%');
+            } elseif ($workflow->process === 'Master Pekerjaan') {
+                $query->where(function ($q) {
+                    $q->where('id', 'LIKE', 'KI-%')
+                      ->orWhere('id', 'LIKE', 'KSI-%');
+                });
+            }
+
+            $activeApprovals = $query->get();
 
             $workflowStages = $workflow->stages()->orderBy('order', 'asc')->get();
             if ($workflowStages->isEmpty()) {

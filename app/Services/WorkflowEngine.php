@@ -18,10 +18,22 @@ class WorkflowEngine
         ?string $unit = null,
         array $fallbackStages = []
     ): void {
+        $synonyms = [
+            'Internal Construction' => ['Internal Construction', 'Konstruksi Internal', 'Konstruksi'],
+            'Konstruksi Internal'   => ['Internal Construction', 'Konstruksi Internal', 'Konstruksi'],
+            'Legal Operations'      => ['Legal Operations', 'Legal', 'Legalitas'],
+            'Legal'                 => ['Legal Operations', 'Legal', 'Legalitas'],
+            'Project Customer'      => ['Project Customer', 'Customer Project'],
+            'Cashflow'              => ['Cashflow', 'Arus Kas'],
+            'Budgeting'             => ['Budgeting', 'Anggaran'],
+            'Contract'              => ['Contract', 'Kontrak'],
+        ];
+        $moduleList = $synonyms[$module] ?? [$module];
+
         $query = ApprovalWorkflow::with('stages')
             ->where('status', 'Active')
-            ->where(function ($q) use ($module) {
-                $q->where('module', $module)
+            ->where(function ($q) use ($moduleList, $module) {
+                $q->whereIn('module', $moduleList)
                   ->orWhere('module', 'LIKE', '%' . trim(str_replace(['Operations', 'Internal'], '', $module)) . '%');
             });
 
@@ -35,8 +47,8 @@ class WorkflowEngine
         if (!$workflow && $process) {
             $workflow = ApprovalWorkflow::with('stages')
                 ->where('status', 'Active')
-                ->where(function ($q) use ($module) {
-                    $q->where('module', $module)
+                ->where(function ($q) use ($moduleList, $module) {
+                    $q->whereIn('module', $moduleList)
                       ->orWhere('module', 'LIKE', '%' . trim(str_replace(['Operations', 'Internal'], '', $module)) . '%');
                 })
                 ->first();
