@@ -22,6 +22,7 @@ Route::put('/construction-works/{id}', [ConstructionController::class, 'update']
 Route::get('/customer-projects',  [CustomerProjectController::class, 'index']);
 Route::post('/customer-projects', [CustomerProjectController::class, 'store']);
 Route::put('/customer-projects/{id}', [CustomerProjectController::class, 'update']);
+Route::post('/customer-projects/site-report', [CustomerProjectController::class, 'submitSiteReport']);
 
 Route::get('/legal-requests',  [LegalRequestController::class, 'index']);
 Route::post('/legal-requests', [LegalRequestController::class, 'store']);

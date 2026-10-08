@@ -487,4 +487,109 @@ class CustomerProjectController extends Controller
             'message'     => $isDraft ? 'Draft berhasil diperbarui.' : 'Project customer berhasil diajukan ke antrean approval.',
         ], 200);
     }
+
+    public function submitSiteReport(Request $request)
+    {
+        $validated = $request->validate([
+            'id'             => 'required|string',
+            'projectId'      => 'required|string',
+            'projectName'    => 'required|string',
+            'reportingDate'  => 'required|string',
+            'pic'            => 'required|string',
+            'targetProgress' => 'required|numeric',
+            'actualProgress' => 'required|numeric',
+            'deviation'      => 'required|numeric',
+            'workCompleted'  => 'required|string',
+            'workPlanned'    => 'required|string',
+            'issues'         => 'nullable|string',
+            'correctiveAction'=> 'nullable|string',
+            'attachments'    => 'nullable|array',
+        ]);
+
+        $project = CustomerProject::find($validated['projectId']);
+        $unit = $project ? $project->unit : 'Cabang Surabaya';
+
+        $approvalId = $validated['id'];
+
+        $existing = Approval::find($approvalId);
+        if (!$existing) {
+            Approval::create([
+                'id'              => $approvalId,
+                'module'          => 'Project Customer',
+                'request'         => "Site Report · {$validated['projectName']}",
+                'summary'         => "Laporan Mingguan ({$validated['reportingDate']}): Progres Realisasi {$validated['actualProgress']}% (Target {$validated['targetProgress']}%, Deviasi {$validated['deviation']}%). Dilaporkan oleh {$validated['pic']}.",
+                'unit'            => $unit,
+                'submitted_by'    => $validated['pic'],
+                'submitted_by_id' => strtolower(str_replace(' ', '', $validated['pic'])),
+                'submitted_date'  => date('d M Y'),
+                'period'          => date('M Y'),
+                'amount'          => 0,
+                'amount_label'    => '-',
+                'current_stage'   => 1,
+                'priority'        => 'Medium',
+                'status'          => 'Waiting',
+                'due_date'        => date('Y-m-d', strtotime('+7 days')),
+                'notes'           => "Pekerjaan Selesai: {$validated['workCompleted']}\nRencana: {$validated['workPlanned']}",
+            ]);
+
+            if (!empty($validated['attachments'])) {
+                foreach ($validated['attachments'] as $att) {
+                    \App\Models\ApprovalAttachment::create([
+                        'approval_id' => $approvalId,
+                        'name'        => $att['name'] ?? 'lampiran.pdf',
+                        'size'        => isset($att['sizeKb']) ? ($att['sizeKb'] . ' KB') : '100 KB',
+                        'type'        => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                        'file_path'   => $att['url'] ?? null,
+                        'file_url'    => $att['url'] ?? null,
+                    ]);
+                }
+            }
+
+            WorkflowEngine::attachStagesToApproval(
+                $approvalId,
+                'Project Customer',
+                'Site Report',
+                0,
+                $unit,
+                [
+                    ['order' => 1, 'name' => 'Review Commercial', 'role' => 'Staff Commercial', 'approver' => 'Andi Sultan'],
+                    ['order' => 2, 'name' => 'Persetujuan General Manager', 'role' => 'General Manager', 'approver' => 'Lazuardhi Hilman Lathif'],
+                ]
+            );
+
+            ApprovalHistory::create([
+                'approval_id' => $approvalId,
+                'actor'       => $validated['pic'],
+                'role'        => 'Pengawas Lapangan',
+                'action'      => 'Laporan Diajukan',
+                'note'        => 'Laporan Site Report diajukan dan menunggu review bertahap.',
+                'at'          => date('d M Y, H:i'),
+            ]);
+        } else {
+            $existing->update([
+                'summary' => "Laporan Mingguan ({$validated['reportingDate']}): Progres Realisasi {$validated['actualProgress']}% (Target {$validated['targetProgress']}%, Deviasi {$validated['deviation']}%). Dilaporkan oleh {$validated['pic']}.",
+                'notes'   => "Pekerjaan Selesai: {$validated['workCompleted']}\nRencana: {$validated['workPlanned']}",
+            ]);
+
+            if (!empty($validated['attachments'])) {
+                \App\Models\ApprovalAttachment::where('approval_id', $approvalId)->delete();
+                foreach ($validated['attachments'] as $att) {
+                    \App\Models\ApprovalAttachment::create([
+                        'approval_id' => $approvalId,
+                        'name'        => $att['name'] ?? 'lampiran.pdf',
+                        'size'        => isset($att['sizeKb']) ? ($att['sizeKb'] . ' KB') : '100 KB',
+                        'type'        => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                        'file_path'   => $att['url'] ?? null,
+                        'file_url'    => $att['url'] ?? null,
+                    ]);
+                }
+            }
+        }
+
+        return response()->json([
+            'success'    => true,
+            'approvalId' => $approvalId,
+            'message'    => 'Site report berhasil diajukan ke Approval Center.',
+        ]);
+    }
 }
