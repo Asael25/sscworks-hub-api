@@ -479,44 +479,54 @@ class ConstructionController extends Controller
         $validated = $request->validate([
             'id'             => 'required|string',
             'workId'         => 'required|string',
-            'workName'       => 'required|string',
-            'reportingDate'  => 'required|string',
+            'workName'       => 'nullable|string',
+            'unit'           => 'nullable|string',
+            'reportingDate'  => 'nullable|string',
             'period'         => 'nullable|string',
-            'pic'            => 'required|string',
-            'targetProgress' => 'required|numeric',
-            'actualProgress' => 'required|numeric',
-            'deviation'      => 'required|numeric',
-            'workCompleted'  => 'required|string',
-            'workPlanned'    => 'required|string',
+            'pic'            => 'nullable|string',
+            'targetProgress' => 'nullable|numeric',
+            'actualProgress' => 'nullable|numeric',
+            'deviation'      => 'nullable|numeric',
+            'workCompleted'  => 'nullable|string',
+            'workPlanned'    => 'nullable|string',
             'issues'         => 'nullable|string',
             'correctiveAction'=> 'nullable|string',
             'attachments'    => 'nullable|array',
         ]);
 
         $work = ConstructionWork::find($validated['workId']);
-        $unit = $work ? $work->unit : 'SSC Surabaya';
+        $workName = !empty($validated['workName']) ? $validated['workName'] : ($work ? $work->name : 'Pekerjaan Konstruksi');
+        $unit = !empty($validated['unit']) ? $validated['unit'] : ($work ? $work->unit : 'SSC Surabaya');
+        $pic = !empty($validated['pic']) ? $validated['pic'] : ($work ? $work->pic : 'Pengawas Lapangan');
+        $reportingDate = !empty($validated['reportingDate']) ? $validated['reportingDate'] : date('Y-m-d');
+        $period = !empty($validated['period']) ? $validated['period'] : date('M Y');
+        $targetProgress = (float) ($validated['targetProgress'] ?? ($work ? $work->target : 0));
+        $actualProgress = (float) ($validated['actualProgress'] ?? ($work ? $work->actual : 0));
+        $deviation = (float) ($validated['deviation'] ?? ($actualProgress - $targetProgress));
+        $workCompleted = !empty($validated['workCompleted']) ? $validated['workCompleted'] : '-';
+        $workPlanned = !empty($validated['workPlanned']) ? $validated['workPlanned'] : '-';
 
-        // Update ConstructionWork actual progress
+        // Update ConstructionWork actual progress jika work ada di database
         if ($work) {
             $work->update([
-                'actual' => (float) $validated['actualProgress'],
-                'period' => $validated['period'] ?? $work->period,
+                'actual' => $actualProgress,
+                'period' => $period,
             ]);
-        }
 
-        // Update / create ConstructionWeeklyProgress
-        \App\Models\ConstructionWeeklyProgress::updateOrCreate(
-            [
-                'work_id' => $validated['workId'],
-                'period'  => $validated['period'] ?? ($validated['reportingDate'] ?: date('M Y')),
-            ],
-            [
-                'target'    => (float) $validated['targetProgress'],
-                'actual'    => (float) $validated['actualProgress'],
-                'report_id' => $validated['id'],
-                'status'    => 'Waiting Approval',
-            ]
-        );
+            // Update / create ConstructionWeeklyProgress
+            \App\Models\ConstructionWeeklyProgress::updateOrCreate(
+                [
+                    'work_id' => $validated['workId'],
+                    'period'  => $period,
+                ],
+                [
+                    'target'    => $targetProgress,
+                    'actual'    => $actualProgress,
+                    'report_id' => $validated['id'],
+                    'status'    => 'Waiting Approval',
+                ]
+            );
+        }
 
         $approvalId = $validated['id'];
 
@@ -524,21 +534,21 @@ class ConstructionController extends Controller
         if (!$existing) {
             Approval::create([
                 'id'              => $approvalId,
-                'module'          => 'Internal Construction',
-                'request'         => "Weekly Progress · {$validated['workName']}",
-                'summary'         => "Laporan Mingguan ({$validated['reportingDate']}): Progres Realisasi {$validated['actualProgress']}% (Target {$validated['targetProgress']}%, Deviasi {$validated['deviation']}%). Dilaporkan oleh {$validated['pic']}.",
+                'module'          => 'Konstruksi Internal',
+                'request'         => "Weekly Progress · {$workName}",
+                'summary'         => "Laporan Mingguan ({$reportingDate}): Progres Realisasi {$actualProgress}% (Target {$targetProgress}%, Deviasi {$deviation}%). Dilaporkan oleh {$pic}.",
                 'unit'            => $unit,
-                'submitted_by'    => $validated['pic'],
-                'submitted_by_id' => strtolower(str_replace(' ', '', $validated['pic'])),
+                'submitted_by'    => $pic,
+                'submitted_by_id' => strtolower(str_replace(' ', '', $pic)),
                 'submitted_date'  => date('d M Y'),
-                'period'          => $validated['period'] ?? date('M Y'),
+                'period'          => $period,
                 'amount'          => 0,
                 'amount_label'    => '-',
                 'current_stage'   => 1,
                 'priority'        => 'Medium',
                 'status'          => 'Waiting',
                 'due_date'        => date('Y-m-d', strtotime('+7 days')),
-                'notes'           => "Pekerjaan Selesai: {$validated['workCompleted']}\nRencana: {$validated['workPlanned']}",
+                'notes'           => "Pekerjaan Selesai: {$workCompleted}\nRencana: {$workPlanned}",
             ]);
 
             if (!empty($validated['attachments'])) {
@@ -568,7 +578,7 @@ class ConstructionController extends Controller
 
             ApprovalHistory::create([
                 'approval_id' => $approvalId,
-                'actor'       => $validated['pic'],
+                'actor'       => $pic,
                 'role'        => 'Pengawas Konstruksi Lapangan',
                 'action'      => 'Laporan Mingguan Diajukan',
                 'note'        => 'Laporan Weekly Progress diajukan untuk review BM dan persetujuan GM.',
@@ -576,8 +586,8 @@ class ConstructionController extends Controller
             ]);
         } else {
             $existing->update([
-                'summary' => "Laporan Mingguan ({$validated['reportingDate']}): Progres Realisasi {$validated['actualProgress']}% (Target {$validated['targetProgress']}%, Deviasi {$validated['deviation']}%). Dilaporkan oleh {$validated['pic']}.",
-                'notes'   => "Pekerjaan Selesai: {$validated['workCompleted']}\nRencana: {$validated['workPlanned']}",
+                'summary' => "Laporan Mingguan ({$reportingDate}): Progres Realisasi {$actualProgress}% (Target {$targetProgress}%, Deviasi {$deviation}%). Dilaporkan oleh {$pic}.",
+                'notes'   => "Pekerjaan Selesai: {$workCompleted}\nRencana: {$workPlanned}",
             ]);
 
             if (!empty($validated['attachments'])) {
