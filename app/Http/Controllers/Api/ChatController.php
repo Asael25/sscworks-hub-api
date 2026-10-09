@@ -26,14 +26,15 @@ class ChatController extends Controller
         }
 
         $conversations = $query->orderBy('updated_at', 'desc')->get();
+        $userId = $request->query('userId') ?: $request->header('X-User-Id');
 
-        $result = $conversations->map(function ($c) {
+        $result = $conversations->map(function ($c) use ($userId) {
             $lastMsg = ChatMessage::where('conversation_id', $c->id)
                                   ->where('deleted', false)
                                   ->orderBy('sent_at', 'desc')
                                   ->first();
 
-            $data = $c->toFrontendSummary();
+            $data = $c->toFrontendSummary($userId);
             $data['lastMessage'] = $lastMsg ? $lastMsg->toFrontendFormat() : null;
             return $data;
         });
@@ -161,8 +162,10 @@ class ChatController extends Controller
             'sent_at' => Carbon::now(),
         ]);
 
-        // Increment unread count and touch conversation
-        $conversation->increment('unread_count');
+        $senderId = $validated['senderId'] ?? 'u-virga';
+
+        // Increment unread count for recipients only (sender stays 0)
+        $conversation->incrementUnreadForRecipients($senderId);
         $conversation->touch();
 
         $msgFormat = $message->toFrontendFormat();
@@ -176,7 +179,7 @@ class ChatController extends Controller
         }
 
         // Send unread email notifications to other members
-        $this->sendUnreadEmailNotification($conversation, $message, $validated['senderId'] ?? 'u-virga');
+        $this->sendUnreadEmailNotification($conversation, $message, $senderId);
 
         return response()->json($msgFormat, 201);
     }
@@ -307,13 +310,18 @@ class ChatController extends Controller
         }
     }
 
-    public function markRead($conversationId)
+    public function markRead(Request $request, $conversationId)
     {
         $conversation = Conversation::find($conversationId);
+        $userId = $request->input('userId') ?: $request->query('userId') ?: $request->header('X-User-Id');
         if ($conversation) {
-            $conversation->update(['unread_count' => 0]);
+            if ($userId) {
+                $conversation->markAsReadForUser($userId);
+            } else {
+                $conversation->update(['unread_count' => 0, 'unread_counts' => []]);
+            }
             try {
-                event(new \App\Events\ConversationUpdated($conversation->toFrontendSummary()));
+                event(new \App\Events\ConversationUpdated($conversation->toFrontendSummary($userId)));
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning('Broadcast failed in markRead: ' . $e->getMessage());
             }
