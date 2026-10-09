@@ -14,6 +14,7 @@ Route::get('/user', function (Request $request) {
 
 Route::get('/approvals', [ApprovalController::class, 'index']);
 Route::post('/approvals/{id}/decide', [ApprovalController::class, 'decide']);
+Route::delete('/approvals/{id}', [ApprovalController::class, 'destroy']);
 
 Route::get('/construction-works',  [ConstructionController::class, 'index']);
 Route::post('/construction-works', [ConstructionController::class, 'store']);

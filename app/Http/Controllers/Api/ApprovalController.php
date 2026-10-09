@@ -309,4 +309,66 @@ class ApprovalController extends Controller
             'item' => $formatted
         ]);
     }
+
+    public function destroy($id)
+    {
+        $approval = Approval::find($id);
+        if (!$approval) {
+            return response()->json(['message' => 'Approval tidak ditemukan'], 404);
+        }
+
+        // 1. Jika ini Site Report Customer Project (CSR- atau CPR-)
+        if (str_starts_with($id, 'CSR-') || str_starts_with($id, 'CPR-')) {
+            \App\Models\CustomerProjectWeeklyProgress::where('report_id', $id)
+                ->orWhere('period', $approval->period)
+                ->delete();
+
+            if (preg_match('/·\s*(.+)$/', $approval->request, $mProj)) {
+                $pName = trim($mProj[1]);
+                $project = \App\Models\CustomerProject::where('name', $pName)->first();
+                if ($project) {
+                    $lastWk = \App\Models\CustomerProjectWeeklyProgress::where('project_id', $project->id)
+                        ->orderBy('id', 'desc')
+                        ->first();
+                    $newActual = $lastWk ? $lastWk->actual : 0;
+                    $project->update([
+                        'actual' => $newActual,
+                        'status' => $newActual >= 100 ? 'Completed' : 'On Schedule',
+                    ]);
+                }
+            }
+        }
+
+        // 2. Jika ini Weekly Progress Internal Construction (WPR-)
+        if (str_starts_with($id, 'WPR-')) {
+            $wp = \App\Models\ConstructionWeeklyProgress::where('report_id', $id)->first();
+            if ($wp) {
+                $workId = $wp->work_id;
+                $wp->delete();
+                $work = \App\Models\ConstructionWork::find($workId);
+                if ($work) {
+                    $lastWk = \App\Models\ConstructionWeeklyProgress::where('work_id', $workId)
+                        ->where('status', 'Approved')
+                        ->orderBy('id', 'desc')
+                        ->first();
+                    $newActual = $lastWk ? $lastWk->actual : 0;
+                    $work->update([
+                        'actual' => $newActual,
+                        'status' => $newActual >= 100 ? 'Completed' : 'On Schedule',
+                    ]);
+                }
+            }
+        }
+
+        // Hapus child records dan approval utama
+        \App\Models\ApprovalStage::where('approval_id', $id)->delete();
+        \App\Models\ApprovalAttachment::where('approval_id', $id)->delete();
+        \App\Models\ApprovalHistory::where('approval_id', $id)->delete();
+        $approval->delete();
+
+        return response()->json([
+            'ok' => true,
+            'message' => "Laporan/Approval {$id} berhasil dihapus permanen.",
+        ]);
+    }
 }
