@@ -585,9 +585,20 @@ class ConstructionController extends Controller
                 'at'          => date('d M Y, H:i'),
             ]);
         } else {
+            // Jika sebelumnya berstatus 'Returned' atau perlu revisi, aktifkan kembali
+            // Pertahankan $existing->current_stage agar tidak mengulang tahap 1 jika revisi terjadi di tahap 2 dst.
+            $nextStatus = ($existing->current_stage > 1) ? 'In Review' : 'Waiting';
+
             $existing->update([
+                'status'  => $nextStatus,
                 'summary' => "Laporan Mingguan ({$reportingDate}): Progres Realisasi {$actualProgress}% (Target {$targetProgress}%, Deviasi {$deviation}%). Dilaporkan oleh {$pic}.",
                 'notes'   => "Pekerjaan Selesai: {$workCompleted}\nRencana: {$workPlanned}",
+            ]);
+
+            \App\Models\ConstructionWeeklyProgress::where('report_id', $approvalId)->update([
+                'status' => 'Waiting Approval',
+                'target' => $targetProgress,
+                'actual' => $actualProgress,
             ]);
 
             if (!empty($validated['attachments'])) {
@@ -603,6 +614,15 @@ class ConstructionController extends Controller
                     ]);
                 }
             }
+
+            ApprovalHistory::create([
+                'approval_id' => $approvalId,
+                'actor'       => $pic,
+                'role'        => 'Pengawas Lapangan',
+                'action'      => 'Revisi Diajukan Kembali',
+                'note'        => "Laporan telah direvisi oleh {$pic} dan diajukan kembali ke Tahap {$existing->current_stage}.",
+                'at'          => date('d M Y, H:i'),
+            ]);
         }
 
         return response()->json([

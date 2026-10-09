@@ -566,7 +566,12 @@ class CustomerProjectController extends Controller
                 'at'          => date('d M Y, H:i'),
             ]);
         } else {
+            // Jika sebelumnya berstatus 'Returned' atau perlu revisi, aktifkan kembali
+            // Pertahankan $existing->current_stage agar tidak mengulang tahap 1 jika revisi terjadi di tahap 2 dst.
+            $nextStatus = ($existing->current_stage > 1) ? 'In Review' : 'Waiting';
+
             $existing->update([
+                'status'  => $nextStatus,
                 'summary' => "Laporan Mingguan ({$validated['reportingDate']}): Progres Realisasi {$validated['actualProgress']}% (Target {$validated['targetProgress']}%, Deviasi {$validated['deviation']}%). Dilaporkan oleh {$validated['pic']}.",
                 'notes'   => "Pekerjaan Selesai: {$validated['workCompleted']}\nRencana: {$validated['workPlanned']}",
             ]);
@@ -584,6 +589,15 @@ class CustomerProjectController extends Controller
                     ]);
                 }
             }
+
+            ApprovalHistory::create([
+                'approval_id' => $approvalId,
+                'actor'       => $validated['pic'],
+                'role'        => 'Pengawas Lapangan',
+                'action'      => 'Revisi Diajukan Kembali',
+                'note'        => "Laporan site report telah direvisi oleh {$validated['pic']} dan diajukan kembali ke Tahap {$existing->current_stage}.",
+                'at'          => date('d M Y, H:i'),
+            ]);
         }
 
         return response()->json([
