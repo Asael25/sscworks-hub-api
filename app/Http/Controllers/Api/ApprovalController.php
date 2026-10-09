@@ -210,7 +210,20 @@ class ApprovalController extends Controller
                     }
                 } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
                     if (str_starts_with($approval->id, 'WPR-')) {
-                        \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Approved']);
+                        $wp = \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->first();
+                        if ($wp) {
+                            $wp->update(['status' => 'Approved']);
+                            $work = \App\Models\ConstructionWork::find($wp->work_id);
+                            if ($work) {
+                                $work->update([
+                                    'actual' => $wp->actual,
+                                    'period' => $wp->period,
+                                    'status' => $wp->actual >= 100 ? 'Completed' : 'On Schedule',
+                                ]);
+                            }
+                        } else {
+                            \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Approved']);
+                        }
                     } else {
                         \App\Models\ConstructionWork::where('id', $approval->id)->update(['status' => 'On Schedule']);
                     }

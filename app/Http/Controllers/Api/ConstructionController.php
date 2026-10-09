@@ -506,14 +506,10 @@ class ConstructionController extends Controller
         $workCompleted = !empty($validated['workCompleted']) ? $validated['workCompleted'] : '-';
         $workPlanned = !empty($validated['workPlanned']) ? $validated['workPlanned'] : '-';
 
-        // Update ConstructionWork actual progress jika work ada di database
+        // Catatan: Progres fisik resmi master pekerjaan ($work->actual) TIDAK di-update di sini saat submit,
+        // melainkan hanya diperbarui setelah laporan mingguan disahkan (status 'Approved') oleh GM di ApprovalController.
         if ($work) {
-            $work->update([
-                'actual' => $actualProgress,
-                'period' => $period,
-            ]);
-
-            // Update / create ConstructionWeeklyProgress
+            // Update / create ConstructionWeeklyProgress dengan status Waiting Approval
             \App\Models\ConstructionWeeklyProgress::updateOrCreate(
                 [
                     'work_id' => $validated['workId'],
