@@ -18,6 +18,7 @@ Route::post('/approvals/{id}/decide', [ApprovalController::class, 'decide']);
 Route::get('/construction-works',  [ConstructionController::class, 'index']);
 Route::post('/construction-works', [ConstructionController::class, 'store']);
 Route::put('/construction-works/{id}', [ConstructionController::class, 'update']);
+Route::post('/construction-works/weekly-progress', [ConstructionController::class, 'submitWeeklyProgress']);
 
 Route::get('/customer-projects',  [CustomerProjectController::class, 'index']);
 Route::post('/customer-projects', [CustomerProjectController::class, 'store']);

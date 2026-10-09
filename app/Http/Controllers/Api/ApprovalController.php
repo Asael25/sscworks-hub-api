@@ -209,7 +209,11 @@ class ApprovalController extends Controller
                         \App\Models\CustomerProject::where('id', $approval->id)->update(['status' => 'On Schedule']);
                     }
                 } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
-                    \App\Models\ConstructionWork::where('id', $approval->id)->update(['status' => 'On Schedule']);
+                    if (str_starts_with($approval->id, 'WPR-')) {
+                        \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Approved']);
+                    } else {
+                        \App\Models\ConstructionWork::where('id', $approval->id)->update(['status' => 'On Schedule']);
+                    }
                 } elseif (in_array($approval->module, ['Legal Operations', 'Legal'])) {
                     \App\Models\LegalRequest::where('request_code', $approval->id)->orWhere('id', $approval->id)->update(['status' => 'completed']);
                 }
@@ -217,9 +221,15 @@ class ApprovalController extends Controller
         } elseif ($decision === 'return') {
             $actionLabel = 'Returned';
             $approval->status = 'Returned';
+            if (str_starts_with($approval->id, 'WPR-')) {
+                \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Revision Required']);
+            }
         } else {
             $actionLabel = 'Rejected';
             $approval->status = 'Rejected';
+            if (str_starts_with($approval->id, 'WPR-')) {
+                \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Rejected']);
+            }
         }
 
         $approval->save();

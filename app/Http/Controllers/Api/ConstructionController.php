@@ -473,4 +473,132 @@ class ConstructionController extends Controller
             'message'     => $isDraft ? 'Draft berhasil diperbarui.' : 'Pekerjaan internal berhasil diajukan ke antrean approval.',
         ], 200);
     }
+
+    public function submitWeeklyProgress(Request $request)
+    {
+        $validated = $request->validate([
+            'id'             => 'required|string',
+            'workId'         => 'required|string',
+            'workName'       => 'required|string',
+            'reportingDate'  => 'required|string',
+            'period'         => 'nullable|string',
+            'pic'            => 'required|string',
+            'targetProgress' => 'required|numeric',
+            'actualProgress' => 'required|numeric',
+            'deviation'      => 'required|numeric',
+            'workCompleted'  => 'required|string',
+            'workPlanned'    => 'required|string',
+            'issues'         => 'nullable|string',
+            'correctiveAction'=> 'nullable|string',
+            'attachments'    => 'nullable|array',
+        ]);
+
+        $work = ConstructionWork::find($validated['workId']);
+        $unit = $work ? $work->unit : 'SSC Surabaya';
+
+        // Update ConstructionWork actual progress
+        if ($work) {
+            $work->update([
+                'actual' => (float) $validated['actualProgress'],
+                'period' => $validated['period'] ?? $work->period,
+            ]);
+        }
+
+        // Update / create ConstructionWeeklyProgress
+        \App\Models\ConstructionWeeklyProgress::updateOrCreate(
+            [
+                'work_id' => $validated['workId'],
+                'period'  => $validated['period'] ?? ($validated['reportingDate'] ?: date('M Y')),
+            ],
+            [
+                'target'    => (float) $validated['targetProgress'],
+                'actual'    => (float) $validated['actualProgress'],
+                'report_id' => $validated['id'],
+                'status'    => 'Waiting Approval',
+            ]
+        );
+
+        $approvalId = $validated['id'];
+
+        $existing = Approval::find($approvalId);
+        if (!$existing) {
+            Approval::create([
+                'id'              => $approvalId,
+                'module'          => 'Internal Construction',
+                'request'         => "Weekly Progress · {$validated['workName']}",
+                'summary'         => "Laporan Mingguan ({$validated['reportingDate']}): Progres Realisasi {$validated['actualProgress']}% (Target {$validated['targetProgress']}%, Deviasi {$validated['deviation']}%). Dilaporkan oleh {$validated['pic']}.",
+                'unit'            => $unit,
+                'submitted_by'    => $validated['pic'],
+                'submitted_by_id' => strtolower(str_replace(' ', '', $validated['pic'])),
+                'submitted_date'  => date('d M Y'),
+                'period'          => $validated['period'] ?? date('M Y'),
+                'amount'          => 0,
+                'amount_label'    => '-',
+                'current_stage'   => 1,
+                'priority'        => 'Medium',
+                'status'          => 'Waiting',
+                'due_date'        => date('Y-m-d', strtotime('+7 days')),
+                'notes'           => "Pekerjaan Selesai: {$validated['workCompleted']}\nRencana: {$validated['workPlanned']}",
+            ]);
+
+            if (!empty($validated['attachments'])) {
+                foreach ($validated['attachments'] as $att) {
+                    \App\Models\ApprovalAttachment::create([
+                        'approval_id' => $approvalId,
+                        'name'        => $att['name'] ?? 'lampiran.pdf',
+                        'size'        => isset($att['sizeKb']) ? ($att['sizeKb'] . ' KB') : '100 KB',
+                        'type'        => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                        'file_path'   => $att['url'] ?? null,
+                        'file_url'    => $att['url'] ?? null,
+                    ]);
+                }
+            }
+
+            WorkflowEngine::attachStagesToApproval(
+                $approvalId,
+                'Internal Construction',
+                'Weekly Progress',
+                0,
+                $unit,
+                [
+                    ['order' => 1, 'name' => 'Review Branch Manager', 'role' => 'Branch Manager', 'approver' => 'Virga'],
+                    ['order' => 2, 'name' => 'Persetujuan General Manager', 'role' => 'General Manager', 'approver' => 'Lazuardhi Hilman Lathif'],
+                ]
+            );
+
+            ApprovalHistory::create([
+                'approval_id' => $approvalId,
+                'actor'       => $validated['pic'],
+                'role'        => 'Pengawas Konstruksi Lapangan',
+                'action'      => 'Laporan Mingguan Diajukan',
+                'note'        => 'Laporan Weekly Progress diajukan untuk review BM dan persetujuan GM.',
+                'at'          => date('d M Y, H:i'),
+            ]);
+        } else {
+            $existing->update([
+                'summary' => "Laporan Mingguan ({$validated['reportingDate']}): Progres Realisasi {$validated['actualProgress']}% (Target {$validated['targetProgress']}%, Deviasi {$validated['deviation']}%). Dilaporkan oleh {$validated['pic']}.",
+                'notes'   => "Pekerjaan Selesai: {$validated['workCompleted']}\nRencana: {$validated['workPlanned']}",
+            ]);
+
+            if (!empty($validated['attachments'])) {
+                \App\Models\ApprovalAttachment::where('approval_id', $approvalId)->delete();
+                foreach ($validated['attachments'] as $att) {
+                    \App\Models\ApprovalAttachment::create([
+                        'approval_id' => $approvalId,
+                        'name'        => $att['name'] ?? 'lampiran.pdf',
+                        'size'        => isset($att['sizeKb']) ? ($att['sizeKb'] . ' KB') : '100 KB',
+                        'type'        => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
+                        'file_path'   => $att['url'] ?? null,
+                        'file_url'    => $att['url'] ?? null,
+                    ]);
+                }
+            }
+        }
+
+        return response()->json([
+            'success'    => true,
+            'approvalId' => $approvalId,
+            'message'    => 'Weekly progress report berhasil diajukan.',
+        ]);
+    }
 }
