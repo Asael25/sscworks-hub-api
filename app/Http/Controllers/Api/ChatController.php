@@ -128,11 +128,20 @@ class ChatController extends Controller
     public function sendMessage(Request $request, $conversationId)
     {
         $validated = $request->validate([
-            'body' => 'required|string',
+            'body' => 'required|string|max:10',
             'senderId' => 'nullable|string',
             'attachments' => 'nullable|array',
             'replyTo' => 'nullable|array',
+        ], [
+            'body.required' => 'Pesan teks wajib diisi.',
+            'body.max' => 'Pesan chat maksimal 10 karakter.',
         ]);
+
+        if (!empty($request->input('attachments'))) {
+            return response()->json([
+                'message' => 'Lampiran file dan gambar dilarang. Hanya pesan teks maksimal 10 karakter yang diperbolehkan.',
+            ], 422);
+        }
 
         $conversation = Conversation::find($conversationId);
         if (!$conversation) {
@@ -155,7 +164,7 @@ class ChatController extends Controller
             'conversation_id' => $conversationId,
             'sender_id' => $validated['senderId'] ?? 'u-virga',
             'body' => $validated['body'],
-            'attachments' => $validated['attachments'] ?? [],
+            'attachments' => [],
             'reply_to' => $validated['replyTo'] ?? null,
             'status' => 'sent',
             'deleted' => false,
