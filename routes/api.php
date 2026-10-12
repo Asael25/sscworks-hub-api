@@ -49,6 +49,7 @@ Route::post('/conversations/{id}/attach-request', [\App\Http\Controllers\Api\Cha
 Route::post('/conversations/{id}/read', [\App\Http\Controllers\Api\ChatController::class, 'markRead']);
 Route::get('/chat/preview-email', [\App\Http\Controllers\Api\ChatController::class, 'previewEmail']);
 Route::post('/chat/test-email', [\App\Http\Controllers\Api\ChatController::class, 'testEmail']);
+Route::post('/chat/purge-expired', [\App\Http\Controllers\Api\ChatController::class, 'purgeExpired']);
 
 Route::get('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'index']);
 Route::post('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'store']);

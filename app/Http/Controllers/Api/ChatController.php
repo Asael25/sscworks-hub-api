@@ -12,8 +12,19 @@ class ChatController extends Controller
 {
     public function index(Request $request)
     {
-        if (Conversation::count() === 0) {
+        $this->purgeExpiredConversations();
+        $this->purgeExpiredMessages();
+
+        $alreadySeeded = false;
+        try {
+            $alreadySeeded = \Illuminate\Support\Facades\Cache::has('ssc_chat_seeded_v1');
+        } catch (\Throwable $e) {}
+
+        if (Conversation::count() === 0 && !$alreadySeeded) {
             $this->seedInitialChat();
+            try {
+                \Illuminate\Support\Facades\Cache::put('ssc_chat_seeded_v1', true, now()->addDays(7));
+            } catch (\Throwable $e) {}
         }
 
         $query = Conversation::query();
@@ -118,6 +129,9 @@ class ChatController extends Controller
 
     public function getMessages(Request $request, $conversationId)
     {
+        $this->purgeExpiredConversations();
+        $this->purgeExpiredMessages();
+
         $messages = ChatMessage::where('conversation_id', $conversationId)
                                 ->orderBy('sent_at', 'asc')
                                 ->get();
@@ -187,8 +201,10 @@ class ChatController extends Controller
             \Illuminate\Support\Facades\Log::warning('Broadcast failed in sendMessage: ' . $e->getMessage());
         }
 
-        // Send unread email notifications to other members
-        $this->sendUnreadEmailNotification($conversation, $message, $senderId);
+        // Push notifikasi email dinonaktifkan sementara (dapat diaktifkan via CHAT_EMAIL_NOTIFICATIONS_ENABLED=true)
+        if (env('CHAT_EMAIL_NOTIFICATIONS_ENABLED', false)) {
+            $this->sendUnreadEmailNotification($conversation, $message, $senderId);
+        }
 
         return response()->json($msgFormat, 201);
     }
@@ -218,6 +234,13 @@ class ChatController extends Controller
 
     public function testEmail(Request $request)
     {
+        if (!env('CHAT_EMAIL_NOTIFICATIONS_ENABLED', false)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Push notifikasi ke email saat ini dinonaktifkan.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'email' => 'required|email',
             'recipient_name' => 'nullable|string',
@@ -279,6 +302,11 @@ class ChatController extends Controller
 
     private function sendUnreadEmailNotification($conversation, $message, $senderId)
     {
+        // Jangan kirim email jika fitur notifikasi email dinonaktifkan
+        if (!env('CHAT_EMAIL_NOTIFICATIONS_ENABLED', false)) {
+            return;
+        }
+
         try {
             $members = $conversation->member_ids ?? [];
             $senderUser = $this->findUserByChatId($senderId);
@@ -358,6 +386,71 @@ class ChatController extends Controller
         return response()->json($msgFormat);
     }
 
+    public function purgeExpiredConversations(): int
+    {
+        // Kontak/ruang percakapan dipertahankan (tidak dihapus).
+        // Penghapusan hanya berlaku untuk isi pesan jika jumlah pesan >= 5.
+        return 0;
+    }
+
+    public function purgeExpiredMessages(): int
+    {
+        try {
+            $cutoff = Carbon::now()->subMinutes(5);
+            $deletedTotal = 0;
+
+            $conversations = Conversation::all();
+
+            foreach ($conversations as $conv) {
+                $totalCount = ChatMessage::where('conversation_id', $conv->id)->count();
+
+                // Syarat: hanya hapus jika percakapan memiliki minimal 5 pesan.
+                // Jika di bawah 5 pesan (< 5), pesan TIDAK dihapus.
+                if ($totalCount < 5) {
+                    continue;
+                }
+
+                $expiredMessages = ChatMessage::where('conversation_id', $conv->id)
+                    ->where('sent_at', '<=', $cutoff)
+                    ->get();
+
+                if ($expiredMessages->isNotEmpty()) {
+                    $count = ChatMessage::where('conversation_id', $conv->id)
+                        ->where('sent_at', '<=', $cutoff)
+                        ->delete();
+
+                    $deletedTotal += $count;
+
+                    try {
+                        event(new \App\Events\ConversationUpdated($conv->toFrontendSummary()));
+                    } catch (\Throwable $e) {
+                        // Ignore broadcast failure
+                    }
+                }
+            }
+
+            return $deletedTotal;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Purge expired chat messages failed: ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    public function purgeExpired(Request $request)
+    {
+        $deletedMsgs = $this->purgeExpiredMessages();
+
+        return response()->json([
+            'success' => true,
+            'deletedConversations' => 0,
+            'deletedMessages' => $deletedMsgs,
+            'ttlMinutes' => 5,
+            'minMessageThreshold' => 5,
+            'cutoff' => Carbon::now()->subMinutes(5)->toIso8601String(),
+            'message' => "Pesan berusia lebih dari 5 menit pada percakapan dengan minimal 5 pesan berhasil dibersihkan ({$deletedMsgs} pesan). Kontak tetap tersimpan.",
+        ]);
+    }
+
     public function attachRequest(Request $request, $conversationId)
     {
         $request->validate([
@@ -429,60 +522,28 @@ class ChatController extends Controller
                 'id' => 'MSG-0001',
                 'conversation_id' => 'c-legal-contract',
                 'sender_id' => 'u-virga',
-                'sent_at' => Carbon::now()->subMinutes(60),
-                'body' => 'Draft klausul pembayaran untuk PT Sinar Abadi sudah saya revisi di versi 3.',
-                'attachments' => [
-                    ['id' => 'a-1', 'name' => 'Draft-Agreement-v3.docx', 'size' => '412 KB', 'type' => 'DOCX']
-                ],
+                'sent_at' => Carbon::now()->subMinutes(3),
+                'body' => 'Klausul OK',
+                'attachments' => [],
                 'status' => 'read',
             ],
             [
                 'id' => 'MSG-0002',
                 'conversation_id' => 'c-legal-contract',
                 'sender_id' => 'u-andi',
-                'sent_at' => Carbon::now()->subMinutes(55),
-                'body' => 'Noted. Saya cek pasal denda keterlambatan dulu sebelum kirim ke unit.',
+                'sent_at' => Carbon::now()->subMinutes(1),
+                'body' => 'Siap cek!',
                 'attachments' => [],
                 'status' => 'read',
-            ],
-            [
-                'id' => 'MSG-0003',
-                'conversation_id' => 'c-legal-contract',
-                'sender_id' => 'u-bintang',
-                'sent_at' => Carbon::now()->subMinutes(40),
-                'body' => 'Unit Palu butuh salinan final sebelum Jumat untuk kickoff internal.',
-                'attachments' => [],
-                'status' => 'delivered',
-            ],
-            [
-                'id' => 'MSG-0004',
-                'conversation_id' => 'c-legal-contract',
-                'sender_id' => 'u-virga',
-                'sent_at' => Carbon::now()->subMinutes(25),
-                'body' => 'Lampiran perhitungan cashflow terkait termin pembayaran saya attach ya.',
-                'attachments' => [
-                    ['id' => 'a-2', 'name' => 'Termin-Cashflow.xlsx', 'size' => '88 KB', 'type' => 'XLSX'],
-                    ['id' => 'a-3', 'name' => 'Rekap-Pembayaran.pdf', 'size' => '1.2 MB', 'type' => 'PDF'],
-                ],
-                'status' => 'delivered',
             ],
             [
                 'id' => 'MSG-0020',
                 'conversation_id' => 'c-budget',
                 'sender_id' => 'u-virga',
-                'sent_at' => Carbon::now()->subHours(5),
-                'body' => 'Budget tambahan perbaikan fasilitas sudah masuk tahap review unit.',
+                'sent_at' => Carbon::now()->subMinutes(2),
+                'body' => 'Budget OK',
                 'attachments' => [],
                 'status' => 'delivered',
-            ],
-            [
-                'id' => 'MSG-0021',
-                'conversation_id' => 'c-budget',
-                'sender_id' => 'u-andi',
-                'sent_at' => Carbon::now()->subHours(4),
-                'body' => 'Bagus, segera informasikan jika butuh disposisi cepat dari HO.',
-                'attachments' => [],
-                'status' => 'read',
             ],
         ];
 

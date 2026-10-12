@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -84,6 +85,11 @@ class Conversation extends Model
 
     public function toFrontendSummary(?string $userId = null): array
     {
+        $lastMsg = $this->latestMessage;
+        $lastActivity = $lastMsg && $lastMsg->sent_at
+            ? ($this->updated_at && $this->updated_at->isAfter($lastMsg->sent_at) ? $this->updated_at : $lastMsg->sent_at)
+            : ($this->updated_at ?: $this->created_at ?: now());
+
         return [
             'id' => $this->id,
             'type' => $this->type,
@@ -95,6 +101,10 @@ class Conversation extends Model
             'relatedRequestIds' => $this->related_request_ids ?? [],
             'unreadCount' => $this->getUnreadCountForUser($userId),
             'unreadCounts' => $this->unread_counts ?? [],
+            'messageCount' => $this->messages()->count(),
+            'updatedAt' => $this->updated_at ? $this->updated_at->toISOString() : null,
+            'createdAt' => $this->created_at ? $this->created_at->toISOString() : null,
+            'lastActivityAt' => $lastActivity ? Carbon::parse($lastActivity)->toISOString() : null,
         ];
     }
 }
