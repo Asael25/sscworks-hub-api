@@ -13,6 +13,7 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::get('/approvals', [ApprovalController::class, 'index']);
+Route::post('/approvals/request-deletion', [ApprovalController::class, 'requestDeletion']);
 Route::post('/approvals/{id}/decide', [ApprovalController::class, 'decide']);
 Route::delete('/approvals/{id}', [ApprovalController::class, 'destroy']);
 
