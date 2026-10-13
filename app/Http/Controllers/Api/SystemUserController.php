@@ -38,6 +38,7 @@ class SystemUserController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|max:255',
+            'username' => 'nullable|string|max:100',
             'password' => 'required|string|min:4',
             'role' => 'required|string',
             'primaryUnit' => 'required|string',
@@ -52,13 +53,22 @@ class SystemUserController extends Controller
             return response()->json(['message' => 'Email atau identifier sudah terdaftar di sistem.'], 422);
         }
 
-        $baseUsername = explode('@', $cleanEmail)[0];
-        $baseUsername = preg_replace('/[^a-zA-Z0-9]/', '', $baseUsername) ?: 'user';
-        $username = $baseUsername;
-        $counter = 1;
-        while (User::whereRaw('LOWER(username) = ?', [strtolower($username)])->exists()) {
-            $username = $baseUsername . $counter;
-            $counter++;
+        if (!empty($validated['username'])) {
+            $candidate = strtolower(trim($validated['username']));
+            $candidate = preg_replace('/[^a-zA-Z0-9._-]/', '', $candidate);
+            if (User::whereRaw('LOWER(username) = ?', [$candidate])->exists()) {
+                return response()->json(['message' => 'Username ini sudah digunakan akun lain. Silakan pilih username lain.'], 422);
+            }
+            $username = $candidate;
+        } else {
+            $baseUsername = explode('@', $cleanEmail)[0];
+            $baseUsername = preg_replace('/[^a-zA-Z0-9._-]/', '', $baseUsername) ?: 'user';
+            $username = $baseUsername;
+            $counter = 1;
+            while (User::whereRaw('LOWER(username) = ?', [strtolower($username)])->exists()) {
+                $username = $baseUsername . $counter;
+                $counter++;
+            }
         }
 
         $user = User::create([
@@ -153,6 +163,7 @@ class SystemUserController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|max:255',
+            'username' => 'nullable|string|max:100',
             'password' => 'nullable|string',
             'role' => 'required|string',
             'primaryUnit' => 'required|string',
@@ -181,6 +192,18 @@ class SystemUserController extends Controller
             'menu_access' => $validated['menuAccess'],
             'authorities' => $validated['authorities'] ?? [],
         ];
+
+        if (!empty($validated['username'])) {
+            $candidate = strtolower(trim($validated['username']));
+            $candidate = preg_replace('/[^a-zA-Z0-9._-]/', '', $candidate);
+            $existingUsername = User::whereRaw('LOWER(username) = ?', [$candidate])
+                                    ->where('id', '!=', $user->id)
+                                    ->first();
+            if ($existingUsername) {
+                return response()->json(['message' => 'Username ini sudah digunakan akun lain. Silakan pilih username lain.'], 422);
+            }
+            $updateData['username'] = $candidate;
+        }
 
         if (!empty($validated['password']) && trim($validated['password']) !== '') {
             $updateData['password'] = Hash::make($validated['password']);
