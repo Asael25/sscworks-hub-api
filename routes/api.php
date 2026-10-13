@@ -34,6 +34,7 @@ Route::post('/legal-requests/{id}', [LegalRequestController::class, 'update']);
 
 Route::post('/auth/signin', [AuthController::class, 'signIn']);
 Route::get('/auth/users',   [AuthController::class, 'me']);
+Route::post('/auth/accept-eula', [AuthController::class, 'acceptEula']);
 Route::post('/upload', [App\Http\Controllers\Api\FileController::class, 'upload']);
 
 Route::get('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::class, 'index']);
@@ -56,6 +57,8 @@ Route::post('/system-users', [\App\Http\Controllers\Api\SystemUserController::cl
 Route::put('/system-users/{id}', [\App\Http\Controllers\Api\SystemUserController::class, 'update']);
 Route::delete('/system-users/{id}', [\App\Http\Controllers\Api\SystemUserController::class, 'destroy']);
 Route::post('/system-users/{id}/toggle-status', [\App\Http\Controllers\Api\SystemUserController::class, 'toggleStatus']);
+Route::post('/system-users/{id}/resend-welcome-email', [\App\Http\Controllers\Api\SystemUserController::class, 'resendWelcomeEmail']);
+Route::get('/system-users/{id}/welcome-email-preview', [\App\Http\Controllers\Api\SystemUserController::class, 'previewWelcomeEmail']);
 
 Route::get('/approval-workflows', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'index']);
 Route::post('/approval-workflows', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'store']);

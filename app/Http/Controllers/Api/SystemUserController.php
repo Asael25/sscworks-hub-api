@@ -23,6 +23,9 @@ class SystemUserController extends Controller
                 'hubAccess' => $u->hub_access,
                 'menuAccess' => $u->menu_access ?? [],
                 'authorities' => $u->authorities ?? [],
+                'eulaAgreed' => (bool) $u->eula_agreed,
+                'eulaAgreedAt' => $u->eula_agreed_at ? $u->eula_agreed_at->translatedFormat('d M Y, H:i') : null,
+                'eulaVersion' => $u->eula_version ?? '1.0',
                 'lastActive' => $u->updated_at ? $u->updated_at->diffForHumans() : 'Never',
             ];
         });
@@ -69,7 +72,26 @@ class SystemUserController extends Controller
             'hub_access' => $validated['hubAccess'] ?? 'Active',
             'menu_access' => $validated['menuAccess'],
             'authorities' => $validated['authorities'] ?? [],
+            'eula_agreed' => false,
+            'eula_agreed_at' => null,
+            'eula_version' => '1.0',
         ]);
+
+        // Send welcome email with login information and EULA notification
+        try {
+            \Illuminate\Support\Facades\Mail::to($cleanEmail)->send(
+                new \App\Mail\NewAccountWelcomeMail(
+                    recipientName: $validated['name'],
+                    username: $username,
+                    email: $cleanEmail,
+                    plainPassword: $validated['password'],
+                    role: $validated['role'],
+                    unit: $validated['primaryUnit']
+                )
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Gagal mengirim welcome email ke {$cleanEmail}: " . $e->getMessage());
+        }
 
         return response()->json([
             'id' => (string) $user->id,
@@ -82,6 +104,9 @@ class SystemUserController extends Controller
             'hubAccess' => $user->hub_access,
             'menuAccess' => $user->menu_access ?? [],
             'authorities' => $user->authorities ?? [],
+            'eulaAgreed' => false,
+            'eulaAgreedAt' => null,
+            'eulaVersion' => '1.0',
             'lastActive' => 'Just now',
         ], 201);
     }
@@ -206,5 +231,60 @@ class SystemUserController extends Controller
 
         $user->delete();
         return response()->json(['message' => 'User berhasil dihapus.']);
+    }
+
+    public function resendWelcomeEmail($id, Request $request)
+    {
+        $user = $this->findUserByIdentifier($id, $request->input('email'));
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan.'], 404);
+        }
+
+        $plainPassword = $request->input('password') ?: '(Gunakan password yang telah ditentukan sebelumnya)';
+
+        try {
+            \Illuminate\Support\Facades\Mail::to($user->identifier)->send(
+                new \App\Mail\NewAccountWelcomeMail(
+                    recipientName: $user->name,
+                    username: $user->username,
+                    email: $user->identifier,
+                    plainPassword: $plainPassword,
+                    role: $user->role,
+                    unit: $user->primary_unit
+                )
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => "Email informasi akun dan pemberitahuan EULA berhasil dikirim ulang ke {$user->identifier}.",
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => "Gagal mengirim email: " . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function previewWelcomeEmail($id, Request $request)
+    {
+        $user = $this->findUserByIdentifier($id, $request->input('email'));
+        $name = $user ? $user->name : 'Pengguna Baru PT SSC';
+        $email = $user ? $user->identifier : 'user@ssc.id';
+        $username = $user ? $user->username : 'user123';
+        $role = $user ? $user->role : 'Operational Staff';
+        $unit = $user ? $user->primary_unit : 'Head Office';
+        $password = 'Password123*';
+
+        return view('emails.new-account-welcome', [
+            'recipientName' => $name,
+            'username' => $username,
+            'email' => $email,
+            'plainPassword' => $password,
+            'role' => $role,
+            'unit' => $unit,
+            'loginUrl' => env('FRONTEND_URL', 'http://localhost:5173'),
+            'createdAt' => date('d M Y, H:i'),
+        ]);
     }
 }

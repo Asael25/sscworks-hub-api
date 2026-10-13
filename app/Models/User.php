@@ -24,6 +24,8 @@ class User extends Authenticatable
             'additional_units' => 'array',
             'menu_access' => 'array',
             'authorities' => 'array',
+            'eula_agreed' => 'boolean',
+            'eula_agreed_at' => 'datetime',
         ];
     }
 }

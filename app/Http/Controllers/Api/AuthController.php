@@ -47,6 +47,8 @@ class AuthController extends Controller
             'hubAccess' => $user->hub_access,
             'menuAccess' => $user->menu_access ?? [],
             'authorities' => $user->authorities ?? [],
+            'eulaAgreed' => (bool) $user->eula_agreed,
+            'eulaAgreedAt' => $user->eula_agreed_at ? $user->eula_agreed_at->toIso8601String() : null,
             'token' => 'bearer.' . bin2hex(random_bytes(16)),
             'expiresAt' => $expiresAt,
         ]);
@@ -65,9 +67,40 @@ class AuthController extends Controller
                 'hubAccess' => $user->hub_access,
                 'menuAccess' => $user->menu_access ?? [],
                 'authorities' => $user->authorities ?? [],
+                'eulaAgreed' => (bool) $user->eula_agreed,
+                'eulaAgreedAt' => $user->eula_agreed_at ? $user->eula_agreed_at->toIso8601String() : null,
             ];
         });
 
         return response()->json($users);
+    }
+
+    public function acceptEula(Request $request)
+    {
+        $identifier = $request->header('X-User-Identifier') ?: $request->input('identifier');
+        if (!$identifier) {
+            return response()->json(['message' => 'Identifier pengguna diperlukan.'], 400);
+        }
+
+        $normalized = strtolower(trim($identifier));
+        $user = User::whereRaw('LOWER(identifier) = ?', [$normalized])
+            ->orWhereRaw('LOWER(username) = ?', [$normalized])
+            ->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan.'], 404);
+        }
+
+        $user->eula_agreed = true;
+        $user->eula_agreed_at = now();
+        $user->eula_version = $request->input('version', '1.0');
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Persetujuan EULA & Kebijakan Monitoring Privasi berhasil dicatat.',
+            'eulaAgreed' => true,
+            'eulaAgreedAt' => $user->eula_agreed_at->toIso8601String(),
+        ]);
     }
 }
