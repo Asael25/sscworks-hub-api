@@ -259,6 +259,16 @@ class ConstructionController extends Controller
         }
 
         if (!$isDraft) {
+            $identifier = $request->header('X-User-Identifier');
+            $submitterUser = null;
+            if ($identifier) {
+                $submitterUser = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                    ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                    ->first();
+            }
+            $submitterName = $submitterUser ? ($submitterUser->name ?: $submitterUser->username) : $pic;
+            $submitterId = $submitterUser ? $submitterUser->identifier : ($identifier ?: strtolower(str_replace(' ', '', $pic)));
+
             // ─── Auto-create global Approval Center record ───────────────────
             $approvalId = $workId;
 
@@ -268,8 +278,8 @@ class ConstructionController extends Controller
                 'request'         => $name,
                 'summary'         => "Pekerjaan konstruksi di {$location} oleh {$vendor}.",
                 'unit'            => $unit,
-                'submitted_by'    => $pic,
-                'submitted_by_id' => strtolower(str_replace(' ', '', $pic)),
+                'submitted_by'    => $submitterName,
+                'submitted_by_id' => $submitterId,
                 'submitted_date'  => date('d M Y'),
                 'period'          => date('M Y'),
                 'amount'          => $validated['budget'] ?? null,

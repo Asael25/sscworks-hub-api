@@ -99,5 +99,11 @@ class WorkflowEngine
                 'unit_scope'  => $s['unit_scope'] ?? $unit,
             ]);
         }
+
+        // Kirim notifikasi email ke approver tahap pertama
+        \App\Services\ApprovalNotificationService::notifyPendingApprover($approvalId);
+
+        // Kirim notifikasi email tanda terima pengajuan ke akun yang submit request
+        \App\Services\ApprovalNotificationService::notifySubmissionReceipt($approvalId);
     }
 }

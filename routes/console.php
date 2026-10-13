@@ -11,28 +11,22 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Artisan::command('chat:purge-expired', function () {
-    $cutoff = Carbon::now()->subMinutes(5);
-    $conversations = \App\Models\Conversation::all();
-    $deletedMsgCount = 0;
+    $ttlMinutes = (int) env('CHAT_RETENTION_MINUTES', 5);
+    $cutoff = Carbon::now()->subMinutes($ttlMinutes);
 
-    foreach ($conversations as $conv) {
-        $totalMessages = \App\Models\ChatMessage::where('conversation_id', $conv->id)->count();
+    $deletedMsgCount = \App\Models\ChatMessage::where('sent_at', '<=', $cutoff)->delete();
 
-        // Syarat: hanya hapus jika percakapan memiliki minimal 5 pesan.
-        // Jika di bawah 5 pesan (< 5), pesan TIDAK dihapus.
-        if ($totalMessages < 5) {
-            continue;
-        }
+    $this->info("Model 1: Berhasil membersihkan {$deletedMsgCount} pesan teks yang berusia lebih dari {$ttlMinutes} menit. Kontak & ruang percakapan tetap tersimpan.");
+})->purpose('Model 1: Hapus pesan teks yang berusia lebih dari batas retensi menit');
 
-        $deleted = \App\Models\ChatMessage::where('conversation_id', $conv->id)
-            ->where('sent_at', '<=', $cutoff)
-            ->delete();
+Artisan::command('chat:clear-all', function () {
+    \App\Models\ChatMessage::query()->delete();
+    \App\Models\Conversation::query()->delete();
+    try {
+        \Illuminate\Support\Facades\Cache::put('ssc_chat_seeded_v1', true, now()->addYears(5));
+    } catch (\Throwable $e) {}
+    $this->info("Semua riwayat kontak percakapan dan pesan di database berhasil dikosongkan.");
+})->purpose('Kosongkan semua kontak percakapan dan riwayat pesan di database');
 
-        $deletedMsgCount += $deleted;
-    }
-
-    $this->info("Berhasil membersihkan {$deletedMsgCount} pesan yang berusia lebih dari 5 menit (hanya pada percakapan dengan minimal 5 pesan). Kontak tetap tersimpan.");
-})->purpose('Hapus pesan yang berusia lebih dari 5 menit jika percakapan memiliki minimal 5 pesan');
-
-// Jalankan otomatis setiap 5 menit
-Schedule::command('chat:purge-expired')->everyFiveMinutes();
+// Auto-delete pesan dinonaktifkan: pesan tersimpan permanen
+// Schedule::command('chat:purge-expired')->everyFiveMinutes();

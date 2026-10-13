@@ -13,6 +13,8 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::get('/approvals', [ApprovalController::class, 'index']);
+Route::get('/approvals/preview-email', [ApprovalController::class, 'previewEmail']);
+Route::post('/approvals/test-email', [ApprovalController::class, 'testEmail']);
 Route::post('/approvals/request-deletion', [ApprovalController::class, 'requestDeletion']);
 Route::post('/approvals/{id}/decide', [ApprovalController::class, 'decide']);
 Route::delete('/approvals/{id}', [ApprovalController::class, 'destroy']);
@@ -50,6 +52,7 @@ Route::post('/conversations/{id}/read', [\App\Http\Controllers\Api\ChatControlle
 Route::get('/chat/preview-email', [\App\Http\Controllers\Api\ChatController::class, 'previewEmail']);
 Route::post('/chat/test-email', [\App\Http\Controllers\Api\ChatController::class, 'testEmail']);
 Route::post('/chat/purge-expired', [\App\Http\Controllers\Api\ChatController::class, 'purgeExpired']);
+Route::post('/chat/clear-all', [\App\Http\Controllers\Api\ChatController::class, 'clearAll']);
 
 Route::get('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'index']);
 Route::post('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'store']);

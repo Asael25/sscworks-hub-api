@@ -351,6 +351,15 @@ class ApprovalController extends Controller
 
         $fresh = $approval->fresh(['stages', 'attachments', 'history']);
 
+        // Kirim email notifikasi ke pemohon (dan reviewer tahap berikutnya jika ada)
+        \App\Services\ApprovalNotificationService::notifyDecision(
+            $fresh,
+            $decision,
+            $reason,
+            $actorName,
+            $actorRole
+        );
+
         $formatted = [
             'id' => $fresh->id,
             'module' => $fresh->module,
@@ -463,6 +472,10 @@ class ApprovalController extends Controller
             'at' => date('d M Y, H:i'),
         ]);
 
+        // Kirim notifikasi email ke Super Admin untuk permohonan hapus
+        \App\Services\ApprovalNotificationService::notifyPendingApprover($approval);
+        \App\Services\ApprovalNotificationService::notifySubmissionReceipt($approval);
+
         return response()->json([
             'ok' => true,
             'id' => $delId,
@@ -488,5 +501,194 @@ class ApprovalController extends Controller
             'ok' => true,
             'message' => "Card riwayat tiket {$id} berhasil dihapus permanen.",
         ]);
+    }
+
+    public function previewEmail(Request $request)
+    {
+        $type = $request->query('type', 'pending');
+        $id = $request->query('id');
+        $action = $request->query('action', 'approved');
+
+        if ($id && ($item = Approval::with('stages')->find($id))) {
+            $stages = $item->stages()->orderBy('order')->get();
+            $current = $stages->firstWhere('order', $item->current_stage) ?? $stages->first();
+            $stageName = $current ? ($current->name ?: $current->role) : 'Review Tahap Aktif';
+
+            return view('emails.approval-notification', [
+                'type' => $type,
+                'recipientName' => $request->query('recipient_name', 'Andi Sultan'),
+                'ticketId' => $item->id,
+                'module' => $item->module,
+                'title' => $item->request,
+                'summary' => $item->summary ?? '',
+                'unit' => $item->unit ?? 'Head Office',
+                'submitterName' => $item->submitted_by ?? 'User SSC',
+                'submittedDate' => $item->submitted_date ?? date('d M Y'),
+                'stageName' => $stageName,
+                'currentStage' => (int) ($item->current_stage ?: 1),
+                'totalStages' => $stages->count() ?: 1,
+                'priority' => $item->priority ?? 'Medium',
+                'dueDate' => $item->due_date,
+                'amountLabel' => $item->amount_label ?? '-',
+                'status' => $item->status ?? 'Waiting',
+                'actionLabel' => ucfirst($action),
+                'decisionNote' => $request->query('note', 'Pengajuan telah diperiksa dan sesuai dengan ketentuan anggaran operasional.'),
+                'actorName' => $request->query('actor', 'Fachrudi Putra (Super Admin)'),
+                'actorRole' => 'Approver',
+                'actionUrl' => env('FRONTEND_URL', 'http://localhost:5173') . '/approval-center',
+            ]);
+        }
+
+        return view('emails.approval-notification', [
+            'type' => $type,
+            'recipientName' => $request->query('recipient_name', 'Andi Sultan'),
+            'ticketId' => 'PRJ-2026-004',
+            'module' => 'Project Customer',
+            'title' => 'Pembangunan Fasilitas Distribusi Gudang Utama',
+            'summary' => 'Pengajuan persetujuan kontrak proyek customer untuk pembangunan fasilitas gudang utama SSC Works.',
+            'unit' => 'Cabang Surabaya',
+            'submitterName' => 'Andi Sultan',
+            'submittedDate' => date('d M Y'),
+            'stageName' => 'Tahap 1: Review Manajer Proyek',
+            'currentStage' => 1,
+            'totalStages' => 3,
+            'priority' => 'High',
+            'dueDate' => date('Y-m-d', strtotime('+5 days')),
+            'amountLabel' => 'Rp 850.000.000',
+            'status' => $type === 'pending' ? 'Waiting' : ucfirst($action),
+            'actionLabel' => ucfirst($action),
+            'decisionNote' => $request->query('note', 'Dokumen spesifikasi teknis dan RAB telah diverifikasi lengkap.'),
+            'actorName' => $request->query('actor', 'Virga Damayanti'),
+            'actorRole' => 'Unit Head',
+            'actionUrl' => env('FRONTEND_URL', 'http://localhost:5173') . '/approval-center',
+        ]);
+    }
+
+    public function testEmail(Request $request)
+    {
+        $validated = $request->validate([
+            'email' => 'required|email',
+            'recipientName' => 'nullable|string',
+            'type' => 'nullable|string|in:pending,decision,submitted',
+            'action' => 'nullable|string|in:approved,rejected,returned',
+            'ticketId' => 'nullable|string',
+        ]);
+
+        $email = $validated['email'];
+        $recipientName = $validated['recipientName'] ?? 'Pengguna SSC';
+        $type = $validated['type'] ?? 'pending';
+        $action = $validated['action'] ?? 'approved';
+        $ticketId = $validated['ticketId'] ?? null;
+
+        $ticket = $ticketId ? Approval::with('stages')->find($ticketId) : null;
+
+        if ($ticket) {
+            $stages = $ticket->stages()->orderBy('order')->get();
+            $current = $stages->firstWhere('order', $ticket->current_stage) ?? $stages->first();
+            $stageName = $current ? ($current->name ?: $current->role) : 'Review Tahap Aktif';
+
+            $mailable = new \App\Mail\ApprovalNotificationMail(
+                type: $type,
+                recipientName: $recipientName,
+                ticketId: $ticket->id,
+                module: $ticket->module,
+                title: $ticket->request,
+                summary: $ticket->summary ?? '',
+                unit: $ticket->unit ?? 'Head Office',
+                submitterName: $ticket->submitted_by ?? 'User SSC',
+                submittedDate: $ticket->submitted_date ?? date('d M Y'),
+                stageName: $stageName,
+                currentStage: (int) ($ticket->current_stage ?: 1),
+                totalStages: $stages->count() ?: 1,
+                priority: $ticket->priority ?? 'Medium',
+                dueDate: $ticket->due_date,
+                amountLabel: $ticket->amount_label ?? '-',
+                status: $ticket->status ?? 'Waiting',
+                actionLabel: ucfirst($action),
+                decisionNote: 'Ini adalah uji coba notifikasi approval resmi dari SSCWorks Hub.',
+                actorName: 'Super Administrator',
+                actorRole: 'Reviewer',
+                actionUrl: env('FRONTEND_URL', 'http://localhost:5173') . '/approval-center'
+            );
+        } else {
+            $mailable = new \App\Mail\ApprovalNotificationMail(
+                type: $type,
+                recipientName: $recipientName,
+                ticketId: 'PRJ-2026-TEST',
+                module: 'Project Customer',
+                title: 'Tes Notifikasi Approval System',
+                summary: 'Pengujian pengiriman email notifikasi approval center SSCWorks Hub.',
+                unit: 'SSC Works — Head Office',
+                submitterName: 'Andi Sultan',
+                submittedDate: date('d M Y'),
+                stageName: 'Tahap 1: Verifikasi Dokumen',
+                currentStage: 1,
+                totalStages: 3,
+                priority: 'High',
+                dueDate: date('Y-m-d', strtotime('+3 days')),
+                amountLabel: 'Rp 450.000.000',
+                status: $type === 'pending' ? 'Waiting' : ucfirst($action),
+                actionLabel: ucfirst($action),
+                decisionNote: 'Uji coba berhasil: format email dan koneksi SMTP approval berfungsi optimal.',
+                actorName: 'Super Administrator',
+                actorRole: 'Approver',
+                actionUrl: env('FRONTEND_URL', 'http://localhost:5173') . '/approval-center'
+            );
+        }
+
+        $hasSmtpCreds = !empty(env('MAIL_USERNAME')) && !empty(env('MAIL_PASSWORD'));
+
+        try {
+            if (!$hasSmtpCreds) {
+                // Catat ke log mailer jika kredensial SMTP belum diisi di .env
+                \Illuminate\Support\Facades\Mail::mailer('log')->to($email)->send($mailable);
+
+                return response()->json([
+                    'success' => true,
+                    'isSimulation' => true,
+                    'message' => "Email berhasil disimulasikan & dicatat di laravel.log (Kredensial Gmail di .env belum diisi).",
+                    'driver' => 'log',
+                    'details' => [
+                        'recipient' => $email,
+                        'type' => $type,
+                        'subject' => $mailable->envelope()->subject,
+                        'note' => 'Untuk pengiriman ke inbox Gmail sungguhan, masukkan MAIL_USERNAME dan MAIL_PASSWORD di file .env backend.',
+                    ]
+                ]);
+            }
+
+            \Illuminate\Support\Facades\Mail::to($email)->send($mailable);
+
+            return response()->json([
+                'success' => true,
+                'isSimulation' => false,
+                'message' => "Email notifikasi approval ({$type}) berhasil dikirim ke {$email}!",
+                'driver' => config('mail.default'),
+                'details' => [
+                    'recipient' => $email,
+                    'type' => $type,
+                    'subject' => $mailable->envelope()->subject,
+                ]
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Test approval email failed: ' . $e->getMessage());
+
+            // Catat salinan email ke log mailer agar tidak hilang
+            try {
+                \Illuminate\Support\Facades\Mail::mailer('log')->to($email)->send($mailable);
+            } catch (\Throwable $logEx) {}
+
+            $reason = $e->getMessage();
+            if (str_contains($reason, 'getaddrinfo') || str_contains($reason, 'Connection could not be established')) {
+                $reason = "Koneksi SMTP ke smtp.gmail.com gagal. Periksa koneksi internet laptop Anda atau ubah MAIL_MAILER=log di file .env untuk mode simulasi lokal.";
+            }
+
+            return response()->json([
+                'success' => false,
+                'isSimulation' => true,
+                'message' => "Gagal mengirim via SMTP Gmail: {$reason} (Salinan email telah dicatat di storage/logs/laravel.log).",
+                'driver' => 'log',
+            ]);
+        }
     }
 }

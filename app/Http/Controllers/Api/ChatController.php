@@ -12,32 +12,52 @@ class ChatController extends Controller
 {
     public function index(Request $request)
     {
-        $this->purgeExpiredConversations();
-        $this->purgeExpiredMessages();
-
-        $alreadySeeded = false;
-        try {
-            $alreadySeeded = \Illuminate\Support\Facades\Cache::has('ssc_chat_seeded_v1');
-        } catch (\Throwable $e) {}
-
-        if (Conversation::count() === 0 && !$alreadySeeded) {
-            $this->seedInitialChat();
-            try {
-                \Illuminate\Support\Facades\Cache::put('ssc_chat_seeded_v1', true, now()->addDays(7));
-            } catch (\Throwable $e) {}
-        }
+        $userId = $request->query('userId') ?: $request->header('X-User-Id');
 
         $query = Conversation::query();
 
+        // Filter percakapan hanya yang melibatkan user terkait (sebagai anggota atau pembuat)
+        if ($userId) {
+            $cleanUser = strtolower($userId);
+            $altUser = str_starts_with($cleanUser, 'u-') ? substr($cleanUser, 2) : 'u-' . $cleanUser;
+            $userVariants = array_values(array_unique([$cleanUser, $altUser, $userId]));
+
+            $query->where(function ($q) use ($userVariants) {
+                foreach ($userVariants as $uv) {
+                    $q->orWhereJsonContains('member_ids', $uv)
+                      ->orWhere('owner_id', $uv);
+                }
+            });
+        }
+
         if ($request->filled('q')) {
             $q = $request->q;
-            $query->where('name', 'like', "%{$q}%")
+            $query->where(function ($w) use ($q) {
+                $w->where('name', 'like', "%{$q}%")
                   ->orWhere('description', 'like', "%{$q}%")
                   ->orWhere('unit', 'like', "%{$q}%");
+            });
         }
 
         $conversations = $query->orderBy('updated_at', 'desc')->get();
-        $userId = $request->query('userId') ?: $request->header('X-User-Id');
+
+        // Filter tambahan pada collection untuk memastikan isolasi antar pengguna 100% terjaga
+        if ($userId) {
+            $conversations = $conversations->filter(function ($c) use ($userId) {
+                $members = is_array($c->member_ids) ? $c->member_ids : [];
+                $owner = $c->owner_id;
+                $cleanUser = strtolower($userId);
+                $altUser = str_starts_with($cleanUser, 'u-') ? substr($cleanUser, 2) : 'u-' . $cleanUser;
+                $allowed = array_unique([$cleanUser, $altUser, $userId]);
+
+                foreach ($allowed as $a) {
+                    if (in_array($a, $members) || $owner === $a) {
+                        return true;
+                    }
+                }
+                return false;
+            })->values();
+        }
 
         $result = $conversations->map(function ($c) use ($userId) {
             $lastMsg = ChatMessage::where('conversation_id', $c->id)
@@ -129,9 +149,6 @@ class ChatController extends Controller
 
     public function getMessages(Request $request, $conversationId)
     {
-        $this->purgeExpiredConversations();
-        $this->purgeExpiredMessages();
-
         $messages = ChatMessage::where('conversation_id', $conversationId)
                                 ->orderBy('sent_at', 'asc')
                                 ->get();
@@ -142,18 +159,18 @@ class ChatController extends Controller
     public function sendMessage(Request $request, $conversationId)
     {
         $validated = $request->validate([
-            'body' => 'required|string|max:10',
+            'body' => 'required|string|max:1000',
             'senderId' => 'nullable|string',
             'attachments' => 'nullable|array',
             'replyTo' => 'nullable|array',
         ], [
             'body.required' => 'Pesan teks wajib diisi.',
-            'body.max' => 'Pesan chat maksimal 10 karakter.',
+            'body.max' => 'Pesan chat maksimal 1000 karakter.',
         ]);
 
         if (!empty($request->input('attachments'))) {
             return response()->json([
-                'message' => 'Lampiran file dan gambar dilarang. Hanya pesan teks maksimal 10 karakter yang diperbolehkan.',
+                'message' => 'Chat difungsikan untuk obrolan teks saja. Lampiran file dinonaktifkan.',
             ], 422);
         }
 
@@ -388,66 +405,38 @@ class ChatController extends Controller
 
     public function purgeExpiredConversations(): int
     {
-        // Kontak/ruang percakapan dipertahankan (tidak dihapus).
-        // Penghapusan hanya berlaku untuk isi pesan jika jumlah pesan >= 5.
+        // Model 1: Kontak dan ruang percakapan tetap tersimpan permanen.
         return 0;
     }
 
     public function purgeExpiredMessages(): int
     {
-        try {
-            $cutoff = Carbon::now()->subMinutes(5);
-            $deletedTotal = 0;
-
-            $conversations = Conversation::all();
-
-            foreach ($conversations as $conv) {
-                $totalCount = ChatMessage::where('conversation_id', $conv->id)->count();
-
-                // Syarat: hanya hapus jika percakapan memiliki minimal 5 pesan.
-                // Jika di bawah 5 pesan (< 5), pesan TIDAK dihapus.
-                if ($totalCount < 5) {
-                    continue;
-                }
-
-                $expiredMessages = ChatMessage::where('conversation_id', $conv->id)
-                    ->where('sent_at', '<=', $cutoff)
-                    ->get();
-
-                if ($expiredMessages->isNotEmpty()) {
-                    $count = ChatMessage::where('conversation_id', $conv->id)
-                        ->where('sent_at', '<=', $cutoff)
-                        ->delete();
-
-                    $deletedTotal += $count;
-
-                    try {
-                        event(new \App\Events\ConversationUpdated($conv->toFrontendSummary()));
-                    } catch (\Throwable $e) {
-                        // Ignore broadcast failure
-                    }
-                }
-            }
-
-            return $deletedTotal;
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Purge expired chat messages failed: ' . $e->getMessage());
-            return 0;
-        }
+        // Fitur auto-delete dinonaktifkan: semua pesan teks tersimpan permanen
+        return 0;
     }
 
     public function purgeExpired(Request $request)
     {
-        $deletedMsgs = $this->purgeExpiredMessages();
+        return response()->json([
+            'success' => true,
+            'model' => 'Permanent Retention',
+            'deletedConversations' => 0,
+            'deletedMessages' => 0,
+            'message' => 'Fitur auto-delete dinonaktifkan. Semua riwayat obrolan dan kontak tersimpan permanen.',
+        ]);
+    }
+
+    public function clearAll(Request $request)
+    {
+        ChatMessage::query()->delete();
+        Conversation::query()->delete();
+        try {
+            \Illuminate\Support\Facades\Cache::put('ssc_chat_seeded_v1', true, now()->addYears(5));
+        } catch (\Throwable $e) {}
 
         return response()->json([
             'success' => true,
-            'deletedConversations' => 0,
-            'deletedMessages' => $deletedMsgs,
-            'ttlMinutes' => 5,
-            'minMessageThreshold' => 5,
-            'cutoff' => Carbon::now()->subMinutes(5)->toIso8601String(),
-            'message' => "Pesan berusia lebih dari 5 menit pada percakapan dengan minimal 5 pesan berhasil dibersihkan ({$deletedMsgs} pesan). Kontak tetap tersimpan.",
+            'message' => 'Semua kontak percakapan dan riwayat pesan berhasil dikosongkan.',
         ]);
     }
 
