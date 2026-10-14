@@ -20,8 +20,8 @@ class FileController extends Controller
 
         $path = $file->store('attachments', 'public');
         
-        // Generate a public URL for the file
-        $url = asset(Storage::disk('public')->url($path));
+        // Generate a public URL for the file (relative path so it works across localhost & cloudflare)
+        $url = '/storage/' . $path;
 
         return response()->json([
             'url' => $url,

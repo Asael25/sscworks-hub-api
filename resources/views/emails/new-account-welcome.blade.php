@@ -161,7 +161,7 @@
     <div class="wrapper">
         <div class="container">
             <div class="header">
-                <div class="badge">PT SINERGI SUKSES CONSULTINDO</div>
+                <div class="badge">PT SSC WORKS</div>
                 <h1>Selamat Datang di SSCWorks Hub</h1>
                 <p>Platform Terpadu Operasional & Tata Kelola Perusahaan</p>
             </div>
@@ -214,7 +214,7 @@
 
             <div class="footer">
                 <p>Email ini dikirim secara otomatis oleh sistem SSCWorks Hub.</p>
-                <p>&copy; {{ date('Y') }} PT Sinergi Sukses Consultindo. All rights reserved.</p>
+                <p>&copy; {{ date('Y') }} PT SSC WORKS. All rights reserved.</p>
             </div>
         </div>
     </div>
