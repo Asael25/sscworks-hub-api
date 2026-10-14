@@ -50,8 +50,6 @@ Route::post('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatContr
 Route::delete('/messages/{id}', [\App\Http\Controllers\Api\ChatController::class, 'deleteMessage']);
 Route::post('/conversations/{id}/attach-request', [\App\Http\Controllers\Api\ChatController::class, 'attachRequest']);
 Route::post('/conversations/{id}/read', [\App\Http\Controllers\Api\ChatController::class, 'markRead']);
-Route::get('/chat/preview-email', [\App\Http\Controllers\Api\ChatController::class, 'previewEmail']);
-Route::post('/chat/test-email', [\App\Http\Controllers\Api\ChatController::class, 'testEmail']);
 Route::post('/chat/purge-expired', [\App\Http\Controllers\Api\ChatController::class, 'purgeExpired']);
 Route::post('/chat/clear-all', [\App\Http\Controllers\Api\ChatController::class, 'clearAll']);
 
