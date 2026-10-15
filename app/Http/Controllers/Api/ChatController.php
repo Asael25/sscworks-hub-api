@@ -59,13 +59,23 @@ class ChatController extends Controller
             })->values();
         }
 
-        $result = $conversations->map(function ($c) use ($userId) {
+        $threshold = Carbon::now()->subSeconds(\App\Models\User::ONLINE_THRESHOLD_SECONDS);
+        $activeUsers = \App\Models\User::where('last_active_at', '>=', $threshold)->get();
+        $activeChatIds = $activeUsers->map(fn($u) => $u->chat_user_id)->unique()->values()->toArray();
+
+        $result = $conversations->map(function ($c) use ($userId, $activeChatIds) {
             $lastMsg = ChatMessage::where('conversation_id', $c->id)
                                   ->where('deleted', false)
                                   ->orderBy('sent_at', 'desc')
                                   ->first();
 
-            $data = $c->toFrontendSummary($userId);
+            $data = $c->toFrontendSummary($userId, $activeChatIds);
+
+            if ($lastMsg && $lastMsg->status === 'sent' && !empty($data['online'])) {
+                $lastMsg->update(['status' => 'delivered']);
+                $lastMsg->status = 'delivered';
+            }
+
             $data['lastMessage'] = $lastMsg ? $lastMsg->toFrontendFormat() : null;
             return $data;
         });
@@ -78,19 +88,74 @@ class ChatController extends Controller
         $users = \App\Models\User::all()->map(function ($u) {
             $parts = explode(' ', $u->name);
             $initials = (isset($parts[0][0]) ? $parts[0][0] : '') . (isset($parts[1][0]) ? $parts[1][0] : '');
-            $uname = strtolower($u->username);
-            $id = ($uname === 'sultan' || $uname === 'andi') ? 'u-andi' : 'u-' . $uname;
             return [
-                'id' => $id,
+                'id' => $u->chat_user_id,
                 'name' => $u->name,
                 'role' => $u->role,
                 'unit' => $u->primary_unit ?: 'Head Office',
                 'initials' => strtoupper($initials) ?: 'US',
-                'online' => true,
+                'online' => $u->is_online,
+                'lastActiveAt' => $u->last_active_at ? $u->last_active_at->toISOString() : null,
             ];
         });
 
         return response()->json($users);
+    }
+
+    public function getPresence(Request $request)
+    {
+        $threshold = Carbon::now()->subSeconds(\App\Models\User::ONLINE_THRESHOLD_SECONDS);
+        $activeUsers = \App\Models\User::where('last_active_at', '>=', $threshold)->get();
+        $activeChatIds = $activeUsers->map(fn($u) => $u->chat_user_id)->unique()->values()->toArray();
+
+        return response()->json([
+            'activeUserIds' => $activeChatIds,
+            'timestamp' => Carbon::now()->toISOString(),
+        ]);
+    }
+
+    public function heartbeat(Request $request)
+    {
+        $userId = $request->input('userId') 
+            ?: $request->header('X-User-Id') 
+            ?: $request->header('X-User-Identifier') 
+            ?: $request->input('identifier');
+
+        $user = null;
+        if ($userId) {
+            $user = \App\Models\User::findByChatUserId($userId);
+            if ($user) {
+                $user->touchActive();
+            }
+        }
+
+        $threshold = Carbon::now()->subSeconds(\App\Models\User::ONLINE_THRESHOLD_SECONDS);
+        $activeUsers = \App\Models\User::where('last_active_at', '>=', $threshold)->get();
+        $activeChatIds = $activeUsers->map(fn($u) => $u->chat_user_id)->unique()->values()->toArray();
+
+        return response()->json([
+            'status' => 'ok',
+            'userId' => $user ? $user->chat_user_id : $userId,
+            'activeUserIds' => $activeChatIds,
+            'timestamp' => Carbon::now()->toISOString(),
+        ]);
+    }
+
+    public function leave(Request $request)
+    {
+        $userId = $request->input('userId') 
+            ?: $request->header('X-User-Id') 
+            ?: $request->header('X-User-Identifier') 
+            ?: $request->input('identifier');
+
+        if ($userId) {
+            $user = \App\Models\User::findByChatUserId($userId);
+            if ($user) {
+                $user->update(['last_active_at' => Carbon::now()->subMinutes(10)]);
+            }
+        }
+
+        return response()->json(['status' => 'ok']);
     }
 
     public function storeConversation(Request $request)
@@ -149,6 +214,59 @@ class ChatController extends Controller
 
     public function getMessages(Request $request, $conversationId)
     {
+        $userId = $request->query('userId') ?: $request->header('X-User-Id');
+        if ($userId) {
+            $cleanUser = strtolower($userId);
+            $altUser = str_starts_with($cleanUser, 'u-') ? substr($cleanUser, 2) : 'u-' . $cleanUser;
+            $userVariants = array_values(array_unique([$cleanUser, $altUser, $userId]));
+
+            // When user opens/fetches messages, mark messages from others as read
+            $updatedCount = ChatMessage::where('conversation_id', $conversationId)
+                ->whereNotIn('sender_id', $userVariants)
+                ->where('status', '!=', 'read')
+                ->update(['status' => 'read']);
+
+            if ($updatedCount > 0) {
+                $conversation = Conversation::find($conversationId);
+                if ($conversation) {
+                    $conversation->markAsReadForUser($userId);
+                    try {
+                        event(new \App\Events\ConversationUpdated($conversation->toFrontendSummary($userId)));
+                    } catch (\Throwable $e) {
+                        // ignore
+                    }
+                }
+            }
+        }
+
+        // Auto-promote any remaining 'sent' messages to 'delivered' if the other party is online
+        $threshold = Carbon::now()->subSeconds(\App\Models\User::ONLINE_THRESHOLD_SECONDS);
+        $onlineChatIds = \App\Models\User::where('last_active_at', '>=', $threshold)
+            ->get()
+            ->map(fn($u) => $u->chat_user_id)
+            ->toArray();
+
+        if (!empty($onlineChatIds)) {
+            $conversation = Conversation::find($conversationId);
+            if ($conversation) {
+                if ($conversation->type === 'direct') {
+                    $members = $conversation->member_ids ?? [];
+                    $otherMember = collect($members)->first(function($m) use ($userId) {
+                        return strtolower($m) !== strtolower($userId ?? '');
+                    });
+                    if ($otherMember && in_array(strtolower($otherMember), array_map('strtolower', $onlineChatIds))) {
+                        ChatMessage::where('conversation_id', $conversationId)
+                            ->where('status', 'sent')
+                            ->update(['status' => 'delivered']);
+                    }
+                } else {
+                    ChatMessage::where('conversation_id', $conversationId)
+                        ->where('status', 'sent')
+                        ->update(['status' => 'delivered']);
+                }
+            }
+        }
+
         $messages = ChatMessage::where('conversation_id', $conversationId)
                                 ->orderBy('sent_at', 'asc')
                                 ->get();
@@ -189,20 +307,43 @@ class ChatController extends Controller
         }
 
         $msgId = 'MSG-' . time() . '-' . rand(100, 999);
+        $senderId = $validated['senderId'] ?? 'u-virga';
+
+        // Check if recipient is active on web to mark as delivered immediately
+        $status = 'sent';
+        $threshold = Carbon::now()->subSeconds(\App\Models\User::ONLINE_THRESHOLD_SECONDS);
+        $onlineChatIds = \App\Models\User::where('last_active_at', '>=', $threshold)
+            ->get()
+            ->map(fn($u) => $u->chat_user_id)
+            ->toArray();
+
+        if ($conversation->type === 'direct') {
+            $members = $conversation->member_ids ?? [];
+            $cleanSender = strtolower($senderId);
+            $recipientId = collect($members)->first(function($m) use ($cleanSender) {
+                $cleanM = strtolower($m);
+                return $cleanM !== $cleanSender && $cleanM !== str_replace('u-', '', $cleanSender);
+            });
+            if ($recipientId && in_array(strtolower($recipientId), array_map('strtolower', $onlineChatIds))) {
+                $status = 'delivered';
+            }
+        } else {
+            if (!empty($onlineChatIds)) {
+                $status = 'delivered';
+            }
+        }
 
         $message = ChatMessage::create([
             'id' => $msgId,
             'conversation_id' => $conversationId,
-            'sender_id' => $validated['senderId'] ?? 'u-virga',
+            'sender_id' => $senderId,
             'body' => $validated['body'],
             'attachments' => [],
             'reply_to' => $validated['replyTo'] ?? null,
-            'status' => 'sent',
+            'status' => $status,
             'deleted' => false,
             'sent_at' => Carbon::now(),
         ]);
-
-        $senderId = $validated['senderId'] ?? 'u-virga';
 
         // Increment unread count for recipients only (sender stays 0)
         $conversation->incrementUnreadForRecipients($senderId);
@@ -228,8 +369,21 @@ class ChatController extends Controller
         if ($conversation) {
             if ($userId) {
                 $conversation->markAsReadForUser($userId);
+
+                $cleanUser = strtolower($userId);
+                $altUser = str_starts_with($cleanUser, 'u-') ? substr($cleanUser, 2) : 'u-' . $cleanUser;
+                $userVariants = array_values(array_unique([$cleanUser, $altUser, $userId]));
+
+                // Update all messages from other users in this conversation to 'read'
+                ChatMessage::where('conversation_id', $conversationId)
+                    ->whereNotIn('sender_id', $userVariants)
+                    ->where('status', '!=', 'read')
+                    ->update(['status' => 'read']);
             } else {
                 $conversation->update(['unread_count' => 0, 'unread_counts' => []]);
+                ChatMessage::where('conversation_id', $conversationId)
+                    ->where('status', '!=', 'read')
+                    ->update(['status' => 'read']);
             }
             try {
                 event(new \App\Events\ConversationUpdated($conversation->toFrontendSummary($userId)));

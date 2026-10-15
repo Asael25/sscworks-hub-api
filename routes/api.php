@@ -44,6 +44,9 @@ Route::post('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::
 
 Route::get('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'index']);
 Route::get('/chat-users', [\App\Http\Controllers\Api\ChatController::class, 'getUsers']);
+Route::get('/chat/presence', [\App\Http\Controllers\Api\ChatController::class, 'getPresence']);
+Route::post('/chat/presence/heartbeat', [\App\Http\Controllers\Api\ChatController::class, 'heartbeat']);
+Route::post('/chat/presence/leave', [\App\Http\Controllers\Api\ChatController::class, 'leave']);
 Route::post('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'storeConversation']);
 Route::get('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatController::class, 'getMessages']);
 Route::post('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatController::class, 'sendMessage']);
@@ -52,6 +55,7 @@ Route::post('/conversations/{id}/attach-request', [\App\Http\Controllers\Api\Cha
 Route::post('/conversations/{id}/read', [\App\Http\Controllers\Api\ChatController::class, 'markRead']);
 Route::post('/chat/purge-expired', [\App\Http\Controllers\Api\ChatController::class, 'purgeExpired']);
 Route::post('/chat/clear-all', [\App\Http\Controllers\Api\ChatController::class, 'clearAll']);
+
 
 Route::get('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'index']);
 Route::post('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'store']);

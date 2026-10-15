@@ -83,12 +83,46 @@ class Conversation extends Model
         $this->save();
     }
 
-    public function toFrontendSummary(?string $userId = null): array
+    public function toFrontendSummary(?string $userId = null, ?array $activeChatIds = null): array
     {
         $lastMsg = $this->latestMessage;
         $lastActivity = $lastMsg && $lastMsg->sent_at
             ? ($this->updated_at && $this->updated_at->isAfter($lastMsg->sent_at) ? $this->updated_at : $lastMsg->sent_at)
             : ($this->updated_at ?: $this->created_at ?: now());
+
+        $cleanUserId = $userId ? strtolower($userId) : null;
+        $altCleanUser = $cleanUserId ? (str_starts_with($cleanUserId, 'u-') ? substr($cleanUserId, 2) : 'u-' . $cleanUserId) : null;
+        $memberIds = $this->member_ids ?? [];
+        
+        $isOnline = false;
+        $onlineCount = 0;
+
+        if ($activeChatIds !== null) {
+            $activeSet = array_flip(array_map('strtolower', $activeChatIds));
+            if ($this->type === 'direct') {
+                foreach ($memberIds as $mId) {
+                    $cleanMId = strtolower($mId);
+                    $altMId = str_starts_with($cleanMId, 'u-') ? substr($cleanMId, 2) : 'u-' . $cleanMId;
+                    if ($cleanMId !== $cleanUserId && $cleanMId !== $altCleanUser) {
+                        if (isset($activeSet[$cleanMId]) || isset($activeSet[$altMId])) {
+                            $isOnline = true;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                foreach ($memberIds as $mId) {
+                    $cleanMId = strtolower($mId);
+                    $altMId = str_starts_with($cleanMId, 'u-') ? substr($cleanMId, 2) : 'u-' . $cleanMId;
+                    if ($cleanMId !== $cleanUserId && $cleanMId !== $altCleanUser) {
+                        if (isset($activeSet[$cleanMId]) || isset($activeSet[$altMId])) {
+                            $onlineCount++;
+                        }
+                    }
+                }
+                $isOnline = $onlineCount > 0;
+            }
+        }
 
         return [
             'id' => $this->id,
@@ -97,11 +131,13 @@ class Conversation extends Model
             'description' => $this->description,
             'unit' => $this->unit,
             'ownerId' => $this->owner_id,
-            'memberIds' => $this->member_ids ?? [],
+            'memberIds' => $memberIds,
             'relatedRequestIds' => $this->related_request_ids ?? [],
             'unreadCount' => $this->getUnreadCountForUser($userId),
             'unreadCounts' => $this->unread_counts ?? [],
             'messageCount' => $this->messages()->count(),
+            'online' => $isOnline,
+            'onlineMembersCount' => $onlineCount,
             'updatedAt' => $this->updated_at ? $this->updated_at->toISOString() : null,
             'createdAt' => $this->created_at ? $this->created_at->toISOString() : null,
             'lastActivityAt' => $lastActivity ? Carbon::parse($lastActivity)->toISOString() : null,

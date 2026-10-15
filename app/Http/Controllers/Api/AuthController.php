@@ -56,6 +56,8 @@ class AuthController extends Controller
         $remember = $request->boolean('remember', false);
         $expiresAt = now()->addHours($remember ? 720 : 8)->timestamp * 1000;
 
+        $user->touchActive();
+
         return response()->json([
             'userId' => $user->username,
             'identifier' => $user->identifier,

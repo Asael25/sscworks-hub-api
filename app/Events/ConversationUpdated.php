@@ -21,9 +21,15 @@ class ConversationUpdated implements ShouldBroadcastNow
 
     public function broadcastOn(): array
     {
-        return [
+        $channels = [
             new Channel('chat.global'),
         ];
+
+        if (!empty($this->conversation['id'])) {
+            $channels[] = new Channel('chat.conversation.' . $this->conversation['id']);
+        }
+
+        return $channels;
     }
 
     public function broadcastAs(): string
