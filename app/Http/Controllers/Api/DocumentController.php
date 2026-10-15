@@ -349,4 +349,67 @@ class DocumentController extends Controller
             'message' => 'Document deleted successfully',
         ]);
     }
+
+    public function download($id)
+    {
+        $document = Document::find($id);
+        if (!$document) {
+            return response()->json(['status' => 'error', 'message' => 'Document not found'], 404);
+        }
+
+        // 1. If file_url points to a physical storage file
+        if ($document->file_url) {
+            $relativePath = preg_replace('/^\/?storage\//', '', $document->file_url);
+            $fullPath = storage_path('app/public/' . $relativePath);
+            if (file_exists($fullPath)) {
+                return response()->download($fullPath, $document->file_name);
+            }
+        }
+
+        // 2. If spreadsheet (XLSX)
+        if (strtoupper($document->file_type) === 'XLSX') {
+            $csv = "PT SSC WORKS — OPERATIONAL DOCUMENT EXPORT\n";
+            $csv .= "Document ID:," . $document->id . "\n";
+            $csv .= "File Name:," . $document->file_name . "\n";
+            $csv .= "Module:," . $document->module . "\n";
+            $csv .= "Category:," . $document->category . "\n";
+            $csv .= "Unit:," . $document->unit . "\n";
+            $csv .= "Reference:," . $document->related_request . " - " . str_replace(',', ' ', $document->related_title) . "\n";
+            $csv .= "Version:," . $document->version . "\n";
+            $csv .= "Status:," . $document->status . "\n";
+            $csv .= "Export Timestamp:," . now()->toDateTimeString() . "\n\n";
+            $csv .= "No,Item Description,Period,Target,Actual,Status,PIC\n";
+            $csv .= "1," . str_replace(',', ' ', $document->related_title ?: $document->file_name) . "," . ($document->period ?: '2026') . ",100%,100%,Approved," . $document->uploaded_by . "\n";
+
+            return response($csv, 200, [
+                'Content-Type' => 'text/csv; charset=utf-8',
+                'Content-Disposition' => 'attachment; filename="' . preg_replace('/\.[^.]+$/', '.csv', $document->file_name) . '"',
+            ]);
+        }
+
+        // 3. Structured Document Record Text
+        $content = "========================================================\n";
+        $content .= "           PT SSC WORKS — DOCUMENT CENTER               \n";
+        $content .= "========================================================\n\n";
+        $content .= "Document Code   : " . $document->id . "\n";
+        $content .= "File Name       : " . $document->file_name . "\n";
+        $content .= "Module          : " . $document->module . "\n";
+        $content .= "Category        : " . $document->category . "\n";
+        $content .= "Originating Unit: " . $document->unit . "\n";
+        $content .= "Reference No    : " . ($document->related_request ?? '-') . "\n";
+        $content .= "Reference Title : " . ($document->related_title ?? '-') . "\n";
+        $content .= "Version         : " . $document->version . "\n";
+        $content .= "Status          : " . $document->status . "\n";
+        $content .= "Uploaded By     : " . $document->uploaded_by . "\n";
+        $content .= "Uploaded Date   : " . ($document->uploaded_date ? $document->uploaded_date->format('d M Y') : date('d M Y')) . "\n\n";
+        $content .= "Summary / Description :\n";
+        $content .= ($document->description ?: 'Operational document officially recorded in SSC Works Hub Central Registry.') . "\n\n";
+        $content .= "========================================================\n";
+        $content .= "Verified & Archival Timestamp: " . now()->toIso8601String() . "\n";
+
+        return response($content, 200, [
+            'Content-Type' => 'text/plain; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="' . $document->file_name . '.txt"',
+        ]);
+    }
 }

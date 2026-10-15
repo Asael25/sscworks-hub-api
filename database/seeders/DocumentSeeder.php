@@ -576,5 +576,36 @@ class DocumentSeeder extends Seeder
                 ]);
             }
         }
+
+        // 4. Ensure EVERY seeded document has a valid, playable & downloadable file_url
+        $sampleJpgs = [
+            '/storage/attachments/8AhWzcMAPjKIyIWnw2X8vYRYwjUy9F0hIsPEdBst.jpg',
+            '/storage/attachments/ADTNSoen02PydizRmCdaCQbcbyy72MtY6F4KSm1S.jpg',
+            '/storage/attachments/kYkwt4GgH7NTxYQ9zG1jD6PH2nE2MmHxxA9N4bat.jpg',
+            '/storage/attachments/hdNkvEmYG8K1EnO928xOPz6p8G8cusig9C1qItiy.jpg',
+            '/storage/attachments/yOB08y8Iwfq9Xej5n8rQhDVr1Mm55ORG1yvtiGnH.jpg',
+        ];
+        $samplePdfs = [
+            '/storage/attachments/UBIaAkrbonkArne1AeX1g3rDAwlbDBQddeY3YaxM.pdf',
+            '/storage/attachments/3jIR7WnQiwFVh7Do2y4BklyQj768bZskVlg7ucbJ.pdf',
+            '/storage/attachments/Z3BCYVZTHBCDj5vShkjL3QuV1HpRBdCXBQly5cbr.pdf',
+            '/storage/attachments/25NSwiYbLNSFv0n0hlcxE8UnTFZ6vYcbBS5EGMf1.pdf',
+            '/storage/attachments/GaNHobN39vYCcUCja95pWC6TPFJWnBLdHp858WN5.pdf',
+        ];
+
+        $allDocs = Document::all();
+        $idx = 0;
+        foreach ($allDocs as $d) {
+            if (!$d->file_url) {
+                if (in_array(strtoupper($d->file_type), ['JPG', 'PNG'])) {
+                    $d->file_url = $sampleJpgs[$idx % count($sampleJpgs)];
+                } else {
+                    $d->file_url = $samplePdfs[$idx % count($samplePdfs)];
+                }
+                $d->save();
+                $d->versions()->whereNull('file_url')->update(['file_url' => $d->file_url]);
+                $idx++;
+            }
+        }
     }
 }
