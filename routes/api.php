@@ -67,4 +67,11 @@ Route::put('/approval-workflows/{id}', [\App\Http\Controllers\Api\ApprovalWorkfl
 Route::delete('/approval-workflows/{id}', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'destroy']);
 Route::post('/approval-workflows/{id}/toggle-status', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'toggleStatus']);
 
+Route::get('/system-units', [\App\Http\Controllers\Api\SystemUnitController::class, 'index']);
+Route::post('/system-units', [\App\Http\Controllers\Api\SystemUnitController::class, 'store']);
+Route::put('/system-units/{id}', [\App\Http\Controllers\Api\SystemUnitController::class, 'update']);
+Route::delete('/system-units/{id}', [\App\Http\Controllers\Api\SystemUnitController::class, 'destroy']);
+Route::post('/system-units/{id}/toggle-status', [\App\Http\Controllers\Api\SystemUnitController::class, 'toggleStatus']);
+
+
 
