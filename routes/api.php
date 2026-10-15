@@ -73,5 +73,7 @@ Route::put('/system-units/{id}', [\App\Http\Controllers\Api\SystemUnitController
 Route::delete('/system-units/{id}', [\App\Http\Controllers\Api\SystemUnitController::class, 'destroy']);
 Route::post('/system-units/{id}/toggle-status', [\App\Http\Controllers\Api\SystemUnitController::class, 'toggleStatus']);
 
-
-
+Route::get('/documents', [\App\Http\Controllers\Api\DocumentController::class, 'index']);
+Route::post('/documents', [\App\Http\Controllers\Api\DocumentController::class, 'store']);
+Route::post('/documents/{id}/versions', [\App\Http\Controllers\Api\DocumentController::class, 'uploadVersion']);
+Route::delete('/documents/{id}', [\App\Http\Controllers\Api\DocumentController::class, 'destroy']);
