@@ -36,6 +36,7 @@ Route::post('/legal-requests/{id}', [LegalRequestController::class, 'update']);
 
 Route::post('/auth/signin', [AuthController::class, 'signIn']);
 Route::get('/auth/users',   [AuthController::class, 'me']);
+Route::get('/auth/profile', [AuthController::class, 'profile']);
 Route::post('/auth/accept-eula', [AuthController::class, 'acceptEula']);
 Route::post('/upload', [App\Http\Controllers\Api\FileController::class, 'upload']);
 

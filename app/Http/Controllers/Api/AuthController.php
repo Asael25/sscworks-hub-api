@@ -96,6 +96,37 @@ class AuthController extends Controller
         return response()->json($users);
     }
 
+    public function profile(Request $request)
+    {
+        $identifier = $request->header('X-User-Identifier') ?: $request->query('identifier');
+        if (!$identifier) {
+            return response()->json(['message' => 'Identifier pengguna diperlukan.'], 400);
+        }
+
+        $normalized = strtolower(trim($identifier));
+        $user = User::whereRaw('LOWER(identifier) = ?', [$normalized])
+            ->orWhereRaw('LOWER(username) = ?', [$normalized])
+            ->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan.'], 404);
+        }
+
+        return response()->json([
+            'userId' => $user->username,
+            'identifier' => $user->identifier,
+            'displayName' => $user->name,
+            'role' => $user->role,
+            'primaryUnit' => $user->primary_unit,
+            'additionalUnits' => $user->additional_units ?? [],
+            'hubAccess' => $user->hub_access,
+            'menuAccess' => $user->menu_access ?? [],
+            'authorities' => $user->authorities ?? [],
+            'eulaAgreed' => (bool) $user->eula_agreed,
+            'eulaAgreedAt' => $user->eula_agreed_at ? $user->eula_agreed_at->toIso8601String() : null,
+        ]);
+    }
+
     public function acceptEula(Request $request)
     {
         $identifier = $request->header('X-User-Identifier') ?: $request->input('identifier');
