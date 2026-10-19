@@ -10,6 +10,7 @@ use App\Models\Approval;
 use App\Models\ApprovalStage;
 use App\Models\ApprovalHistory;
 use App\Services\WorkflowEngine;
+use App\Services\DocumentSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -246,7 +247,7 @@ class ConstructionController extends Controller
         // Simpan Attachments jika ada
         if (!empty($validated['attachments'])) {
             foreach ($validated['attachments'] as $att) {
-                ConstructionAttachment::create([
+                $constAtt = ConstructionAttachment::create([
                     'work_id'      => $workId,
                     'file_name'    => $att['name'] ?? 'attachment.pdf',
                     'file_type'    => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
@@ -255,6 +256,9 @@ class ConstructionController extends Controller
                     'uploaded_by'  => $pic,
                     'uploaded_at'  => date('Y-m-d'),
                 ]);
+
+                // Auto-sync ke Document Center
+                DocumentSyncService::syncConstructionAttachment($work, $constAtt);
             }
         }
 
@@ -567,6 +571,9 @@ class ConstructionController extends Controller
                         'file_path'   => $att['url'] ?? null,
                         'file_url'    => $att['url'] ?? null,
                     ]);
+
+                    // Auto-sync ke Document Center
+                    DocumentSyncService::syncWeeklyProgressAttachment($work, $approvalId, $period, $att, $pic);
                 }
             }
 

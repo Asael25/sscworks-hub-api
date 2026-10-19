@@ -10,6 +10,7 @@ use App\Models\Approval;
 use App\Models\ApprovalStage;
 use App\Models\ApprovalHistory;
 use App\Services\WorkflowEngine;
+use App\Services\DocumentSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -251,7 +252,7 @@ class LegalRequestController extends Controller
 
         if (!empty($validated['attachments'])) {
             foreach ($validated['attachments'] as $att) {
-                LegalAttachment::create([
+                $legalAtt = LegalAttachment::create([
                     'id' => (string) rand(1000, 99999),
                     'request_id' => $id,
                     'file_name' => $att['name'] ?? 'attachment.pdf',
@@ -261,6 +262,9 @@ class LegalRequestController extends Controller
                     'uploaded_by' => $pic,
                     'uploaded_at' => date('Y-m-d'),
                 ]);
+
+                // Auto-sync ke Document Center
+                DocumentSyncService::syncLegalAttachment($legalRequest, $legalAtt);
             }
         }
 

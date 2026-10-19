@@ -8,6 +8,7 @@ use App\Models\DocumentVersion;
 use App\Models\CustomerProject;
 use App\Models\ConstructionWork;
 use App\Models\LegalRequest;
+use App\Services\DocumentSyncService;
 
 class DocumentSeeder extends Seeder
 {
@@ -349,7 +350,7 @@ class DocumentSeeder extends Seeder
                     'category' => 'Customer Projects',
                     'related_request' => $project->id,
                     'related_title' => $project->name,
-                    'unit' => $project->unit,
+                    'unit' => DocumentSyncService::normalizeUnit($project->unit),
                     'file_type' => 'PDF',
                     'size' => '3.1 MB',
                     'uploaded_by' => $wp->reported_by ?? $project->pic ?? 'Site Engineer',
@@ -392,7 +393,7 @@ class DocumentSeeder extends Seeder
                     'category' => 'Construction',
                     'related_request' => $cw->id,
                     'related_title' => $cw->title,
-                    'unit' => $cw->unit,
+                    'unit' => DocumentSyncService::normalizeUnit($cw->unit),
                     'file_type' => in_array($ext, ['PDF', 'XLSX', 'DOCX', 'JPG', 'PNG']) ? $ext : 'PDF',
                     'size' => $sizeMb,
                     'uploaded_by' => $att->uploaded_by ?? $cw->pic ?? 'Project Engineer',
@@ -431,7 +432,7 @@ class DocumentSeeder extends Seeder
                     'category' => 'Construction',
                     'related_request' => $cw->id,
                     'related_title' => $cw->title,
-                    'unit' => $cw->unit,
+                    'unit' => DocumentSyncService::normalizeUnit($cw->unit),
                     'file_type' => 'JPG',
                     'size' => '2.8 MB',
                     'uploaded_by' => $cw->pic ?? 'Site Supervisor',
@@ -470,7 +471,7 @@ class DocumentSeeder extends Seeder
                     'category' => 'Construction',
                     'related_request' => $cw->id,
                     'related_title' => $cw->title,
-                    'unit' => $cw->unit,
+                    'unit' => DocumentSyncService::normalizeUnit($cw->unit),
                     'file_type' => 'XLSX',
                     'size' => '950 KB',
                     'uploaded_by' => $wp->reported_by ?? $cw->pic ?? 'Project Engineer',
@@ -509,9 +510,9 @@ class DocumentSeeder extends Seeder
                     'file_url' => $att->file_url,
                     'module' => 'Legal Operations',
                     'category' => 'Legal',
-                    'related_request' => $lgl->id,
+                    'related_request' => $lgl->request_code ?: $lgl->id,
                     'related_title' => $lgl->title,
-                    'unit' => $lgl->unit,
+                    'unit' => DocumentSyncService::normalizeUnit($lgl->unit),
                     'file_type' => in_array($ext, ['PDF', 'XLSX', 'DOCX', 'JPG', 'PNG']) ? $ext : 'PDF',
                     'size' => '1.8 MB',
                     'uploaded_by' => $lgl->pic ?? 'Legal Officer',
@@ -548,9 +549,9 @@ class DocumentSeeder extends Seeder
                     'file_url' => null,
                     'module' => 'Legal Operations',
                     'category' => 'Legal',
-                    'related_request' => $lgl->id,
+                    'related_request' => $lgl->request_code ?: $lgl->id,
                     'related_title' => $lgl->title,
-                    'unit' => $lgl->unit,
+                    'unit' => DocumentSyncService::normalizeUnit($lgl->unit),
                     'file_type' => 'PDF',
                     'size' => '1.4 MB',
                     'uploaded_by' => 'Legal Dept',

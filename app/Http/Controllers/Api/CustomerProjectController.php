@@ -9,6 +9,7 @@ use App\Models\Approval;
 use App\Models\ApprovalStage;
 use App\Models\ApprovalHistory;
 use App\Services\WorkflowEngine;
+use App\Services\DocumentSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -256,7 +257,7 @@ class CustomerProjectController extends Controller
         // Simpan Attachments jika ada
         if (!empty($validated['attachments'])) {
             foreach ($validated['attachments'] as $att) {
-                CustomerProjectAttachment::create([
+                $projAtt = CustomerProjectAttachment::create([
                     'project_id'   => $projectId,
                     'file_name'    => $att['name'] ?? 'attachment.pdf',
                     'file_type'    => strtoupper(pathinfo($att['name'] ?? 'PDF', PATHINFO_EXTENSION) ?: 'PDF'),
@@ -265,6 +266,9 @@ class CustomerProjectController extends Controller
                     'uploaded_by'  => $pic,
                     'uploaded_at'  => date('Y-m-d'),
                 ]);
+
+                // Auto-sync ke Document Center
+                DocumentSyncService::syncCustomerProjectAttachment($project, $projAtt);
             }
         }
 
