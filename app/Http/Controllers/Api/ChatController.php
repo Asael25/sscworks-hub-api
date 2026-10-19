@@ -325,27 +325,85 @@ class ChatController extends Controller
 
     public function getMessages(Request $request, $conversationId)
     {
+        $conversation = Conversation::find($conversationId);
         $userId = $request->query('userId') ?: $request->header('X-User-Id');
-        if ($userId) {
+        if ($userId && $conversation) {
             $cleanUser = strtolower($userId);
             $altUser = str_starts_with($cleanUser, 'u-') ? substr($cleanUser, 2) : 'u-' . $cleanUser;
             $userVariants = array_values(array_unique([$cleanUser, $altUser, $userId]));
 
-            // When user opens/fetches messages, mark messages from others as read
-            $updatedCount = ChatMessage::where('conversation_id', $conversationId)
+            // Fetch messages from others that need updating
+            $unreadMessages = ChatMessage::where('conversation_id', $conversationId)
                 ->whereNotIn('sender_id', $userVariants)
-                ->where('status', '!=', 'read')
-                ->update(['status' => 'read']);
+                ->get();
 
-            if ($updatedCount > 0) {
-                $conversation = Conversation::find($conversationId);
-                if ($conversation) {
-                    $conversation->markAsReadForUser($userId);
-                    try {
-                        event(new \App\Events\ConversationUpdated($conversation->toFrontendSummary($userId)));
-                    } catch (\Throwable $e) {
-                        // ignore
+            $updatedAny = false;
+            $isDirect = ($conversation->type === 'direct');
+
+            // For group: list of other members that need to read
+            $allMembers = is_array($conversation->member_ids) ? $conversation->member_ids : [];
+            $normMembers = array_values(array_unique(array_map(function($m) {
+                $c = strtolower($m);
+                return str_starts_with($c, 'u-') ? substr($c, 2) : $c;
+            }, $allMembers)));
+
+            $currentNormUser = str_starts_with($cleanUser, 'u-') ? substr($cleanUser, 2) : $cleanUser;
+
+            foreach ($unreadMessages as $msg) {
+                $readBy = is_array($msg->read_by) ? $msg->read_by : [];
+                $normReadBy = array_map(function($m) {
+                    $c = strtolower($m);
+                    return str_starts_with($c, 'u-') ? substr($c, 2) : $c;
+                }, $readBy);
+
+                $changed = false;
+                if (!in_array($currentNormUser, $normReadBy)) {
+                    $readBy[] = $userId;
+                    $normReadBy[] = $currentNormUser;
+                    $msg->read_by = array_values(array_unique($readBy));
+                    $changed = true;
+                }
+
+                if ($isDirect) {
+                    // Direct chat: reader is the only recipient -> mark as read immediately
+                    if ($msg->status !== 'read') {
+                        $msg->status = 'read';
+                        $changed = true;
                     }
+                } else {
+                    // Group chat: check if ALL other members (excluding sender) have read it
+                    $senderNorm = strtolower($msg->sender_id);
+                    $senderNormKey = str_starts_with($senderNorm, 'u-') ? substr($senderNorm, 2) : $senderNorm;
+                    $targetRecipients = array_values(array_filter($normMembers, fn($m) => $m !== $senderNormKey));
+
+                    $allHaveRead = (!empty($targetRecipients)) && count(array_intersect($targetRecipients, $normReadBy)) >= count($targetRecipients);
+
+                    if ($allHaveRead) {
+                        if ($msg->status !== 'read') {
+                            $msg->status = 'read';
+                            $changed = true;
+                        }
+                    } else {
+                        // At least one person read it, so it's delivered
+                        if ($msg->status === 'sent') {
+                            $msg->status = 'delivered';
+                            $changed = true;
+                        }
+                    }
+                }
+
+                if ($changed) {
+                    $msg->save();
+                    $updatedAny = true;
+                }
+            }
+
+            if ($updatedAny) {
+                $conversation->markAsReadForUser($userId);
+                try {
+                    event(new \App\Events\ConversationUpdated($conversation->toFrontendSummary($userId)));
+                } catch (\Throwable $e) {
+                    // ignore
                 }
             }
         }
@@ -452,6 +510,7 @@ class ChatController extends Controller
             'attachments' => [],
             'reply_to' => $validated['replyTo'] ?? null,
             'status' => $status,
+            'read_by' => [],
             'deleted' => false,
             'sent_at' => Carbon::now(),
         ]);

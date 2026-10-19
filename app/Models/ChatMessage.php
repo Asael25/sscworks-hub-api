@@ -20,6 +20,7 @@ class ChatMessage extends Model
         'reply_to' => 'array',
         'deleted' => 'boolean',
         'sent_at' => 'datetime',
+        'read_by' => 'array',
     ];
 
     public function conversation()
@@ -38,6 +39,7 @@ class ChatMessage extends Model
             'attachments' => $this->attachments ?? [],
             'replyTo' => $this->reply_to,
             'status' => $this->status ?: 'sent',
+            'readBy' => $this->read_by ?? [],
             'deleted' => (bool)$this->deleted,
         ];
     }
