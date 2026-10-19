@@ -475,6 +475,156 @@ class ChatController extends Controller
         return response()->json($summary);
     }
 
+    public function addMembers(Request $request, $conversationId)
+    {
+        $validated = $request->validate([
+            'memberIds' => 'required|array|min:1',
+            'memberIds.*' => 'required|string',
+        ]);
+
+        $conversation = Conversation::findOrFail($conversationId);
+
+        if ($conversation->type !== 'group') {
+            return response()->json(['message' => 'Hanya percakapan grup yang dapat menambahkan anggota baru.'], 422);
+        }
+
+        $currentMembers = is_array($conversation->member_ids) ? $conversation->member_ids : [];
+        $newMemberIds = $validated['memberIds'];
+
+        // Saring hanya anggota yang belum tergabung
+        $trulyNew = [];
+        $currentNormalized = array_map(function ($id) {
+            $c = strtolower($id);
+            return str_starts_with($c, 'u-') ? substr($c, 2) : $c;
+        }, $currentMembers);
+
+        foreach ($newMemberIds as $newId) {
+            $norm = strtolower($newId);
+            $normKey = str_starts_with($norm, 'u-') ? substr($norm, 2) : $norm;
+            if (!in_array($normKey, $currentNormalized)) {
+                $trulyNew[] = $newId;
+            }
+        }
+
+        if (!empty($trulyNew)) {
+            $updatedMembers = array_values(array_unique(array_merge($currentMembers, $trulyNew)));
+            $conversation->update(['member_ids' => $updatedMembers]);
+
+            // Kirim pesan sistem notifikasi penambahan anggota
+            $actorId = $request->header('X-User-Id') ?: $request->input('actorId') ?: 'u-virga';
+            $actorUser = \App\Models\User::findByChatUserId($actorId);
+            $actorName = $actorUser ? $actorUser->name : 'Seseorang';
+
+            $addedNames = [];
+            foreach ($trulyNew as $mId) {
+                $u = \App\Models\User::findByChatUserId($mId);
+                $addedNames[] = $u ? $u->name : $mId;
+            }
+
+            $namesString = count($addedNames) === 1
+                ? $addedNames[0]
+                : implode(', ', array_slice($addedNames, 0, -1)) . ' dan ' . end($addedNames);
+
+            $systemMsg = ChatMessage::create([
+                'id' => 'MSG-' . round(microtime(true) * 1000) . '-' . rand(100, 999),
+                'conversation_id' => $conversationId,
+                'sender_id' => 'system',
+                'body' => "{$actorName} menambahkan {$namesString} ke dalam grup.",
+                'attachments' => [],
+                'status' => 'read',
+                'deleted' => false,
+                'sent_at' => Carbon::now(),
+            ]);
+
+            try {
+                event(new \App\Events\MessageSent($systemMsg->toFrontendFormat()));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Broadcast message failed in addMembers: ' . $e->getMessage());
+            }
+        }
+
+        $conversation->touch();
+        $summary = $conversation->toFrontendSummary();
+
+        try {
+            event(new \App\Events\ConversationUpdated($summary));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast failed in addMembers: ' . $e->getMessage());
+        }
+
+        return response()->json($summary);
+    }
+
+    public function removeMember(Request $request, $conversationId, $memberId)
+    {
+        $conversation = Conversation::findOrFail($conversationId);
+
+        if ($conversation->type !== 'group') {
+            return response()->json(['message' => 'Hanya percakapan grup yang dapat mengeluarkan anggota.'], 422);
+        }
+
+        $currentMembers = is_array($conversation->member_ids) ? $conversation->member_ids : [];
+        $normTarget = strtolower($memberId);
+        $normTargetKey = str_starts_with($normTarget, 'u-') ? substr($normTarget, 2) : $normTarget;
+
+        $targetInGroup = collect($currentMembers)->first(function ($m) use ($normTargetKey) {
+            $c = strtolower($m);
+            $ck = str_starts_with($c, 'u-') ? substr($c, 2) : $c;
+            return $ck === $normTargetKey;
+        });
+
+        if (!$targetInGroup) {
+            return response()->json(['message' => 'Pengguna bukan anggota grup ini.'], 404);
+        }
+
+        // Jangan keluarkan owner jika masih ada anggota lain
+        if ($conversation->owner_id === $targetInGroup && count($currentMembers) > 1) {
+            return response()->json(['message' => 'Pemilik grup tidak dapat dikeluarkan.'], 422);
+        }
+
+        $updatedMembers = array_values(array_filter($currentMembers, fn($m) => $m !== $targetInGroup));
+        $conversation->update(['member_ids' => $updatedMembers]);
+
+        $actorId = $request->header('X-User-Id') ?: $request->input('actorId') ?: 'u-virga';
+        $actorUser = \App\Models\User::findByChatUserId($actorId);
+        $targetUser = \App\Models\User::findByChatUserId($targetInGroup);
+
+        $actorName = $actorUser ? $actorUser->name : 'Seseorang';
+        $targetName = $targetUser ? $targetUser->name : $targetInGroup;
+
+        $systemText = ($actorId === $targetInGroup)
+            ? "{$targetName} keluar dari grup."
+            : "{$actorName} mengeluarkan {$targetName} dari grup.";
+
+        $systemMsg = ChatMessage::create([
+            'id' => 'MSG-' . round(microtime(true) * 1000) . '-' . rand(100, 999),
+            'conversation_id' => $conversationId,
+            'sender_id' => 'system',
+            'body' => $systemText,
+            'attachments' => [],
+            'status' => 'read',
+            'deleted' => false,
+            'sent_at' => Carbon::now(),
+        ]);
+
+        try {
+            event(new \App\Events\MessageSent($systemMsg->toFrontendFormat()));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast message failed in removeMember: ' . $e->getMessage());
+        }
+
+        $conversation->touch();
+        $summary = $conversation->toFrontendSummary();
+
+        try {
+            event(new \App\Events\ConversationUpdated($summary));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast failed in removeMember: ' . $e->getMessage());
+        }
+
+        return response()->json($summary);
+    }
+
     private function seedInitialChat()
     {
         $convs = [
