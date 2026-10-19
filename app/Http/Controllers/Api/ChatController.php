@@ -488,6 +488,17 @@ class ChatController extends Controller
             return response()->json(['message' => 'Hanya percakapan grup yang dapat menambahkan anggota baru.'], 422);
         }
 
+        $actorId = $request->header('X-User-Id') ?: $request->input('actorId') ?: 'u-virga';
+        $normActor = strtolower($actorId);
+        $normActorKey = str_starts_with($normActor, 'u-') ? substr($normActor, 2) : $normActor;
+
+        $normOwner = strtolower($conversation->owner_id ?: '');
+        $normOwnerKey = str_starts_with($normOwner, 'u-') ? substr($normOwner, 2) : $normOwner;
+
+        if ($normActorKey !== $normOwnerKey) {
+            return response()->json(['message' => 'Hanya pemilik (owner) grup yang dapat menambahkan anggota baru.'], 403);
+        }
+
         $currentMembers = is_array($conversation->member_ids) ? $conversation->member_ids : [];
         $newMemberIds = $validated['memberIds'];
 
@@ -511,7 +522,6 @@ class ChatController extends Controller
             $conversation->update(['member_ids' => $updatedMembers]);
 
             // Kirim pesan sistem notifikasi penambahan anggota
-            $actorId = $request->header('X-User-Id') ?: $request->input('actorId') ?: 'u-virga';
             $actorUser = \App\Models\User::findByChatUserId($actorId);
             $actorName = $actorUser ? $actorUser->name : 'Seseorang';
 
@@ -577,22 +587,35 @@ class ChatController extends Controller
             return response()->json(['message' => 'Pengguna bukan anggota grup ini.'], 404);
         }
 
+        $actorId = $request->header('X-User-Id') ?: $request->input('actorId') ?: 'u-virga';
+        $normActor = strtolower($actorId);
+        $normActorKey = str_starts_with($normActor, 'u-') ? substr($normActor, 2) : $normActor;
+
+        $normOwner = strtolower($conversation->owner_id ?: '');
+        $normOwnerKey = str_starts_with($normOwner, 'u-') ? substr($normOwner, 2) : $normOwner;
+
+        $isLeavingSelf = ($normActorKey === $normTargetKey);
+
+        // Jika bukan keluar sendiri, maka yang boleh mengeluarkan HANYA owner grup
+        if (!$isLeavingSelf && $normActorKey !== $normOwnerKey) {
+            return response()->json(['message' => 'Hanya pemilik (owner) grup yang dapat mengeluarkan anggota.'], 403);
+        }
+
         // Jangan keluarkan owner jika masih ada anggota lain
         if ($conversation->owner_id === $targetInGroup && count($currentMembers) > 1) {
-            return response()->json(['message' => 'Pemilik grup tidak dapat dikeluarkan.'], 422);
+            return response()->json(['message' => 'Pemilik grup tidak dapat dikeluarkan. Anda dapat membubarkan grup jika ingin menghapusnya.'], 422);
         }
 
         $updatedMembers = array_values(array_filter($currentMembers, fn($m) => $m !== $targetInGroup));
         $conversation->update(['member_ids' => $updatedMembers]);
 
-        $actorId = $request->header('X-User-Id') ?: $request->input('actorId') ?: 'u-virga';
         $actorUser = \App\Models\User::findByChatUserId($actorId);
         $targetUser = \App\Models\User::findByChatUserId($targetInGroup);
 
         $actorName = $actorUser ? $actorUser->name : 'Seseorang';
         $targetName = $targetUser ? $targetUser->name : $targetInGroup;
 
-        $systemText = ($actorId === $targetInGroup)
+        $systemText = ($isLeavingSelf)
             ? "{$targetName} keluar dari grup."
             : "{$actorName} mengeluarkan {$targetName} dari grup.";
 
@@ -623,6 +646,33 @@ class ChatController extends Controller
         }
 
         return response()->json($summary);
+    }
+
+    public function destroyConversation(Request $request, $conversationId)
+    {
+        $conversation = Conversation::findOrFail($conversationId);
+        $actorId = $request->header('X-User-Id') ?: $request->input('actorId') ?: 'u-virga';
+        $normActor = strtolower($actorId);
+        $normActorKey = str_starts_with($normActor, 'u-') ? substr($normActor, 2) : $normActor;
+
+        $normOwner = strtolower($conversation->owner_id ?: '');
+        $normOwnerKey = str_starts_with($normOwner, 'u-') ? substr($normOwner, 2) : $normOwner;
+
+        if ($conversation->type === 'group' && $normActorKey !== $normOwnerKey) {
+            return response()->json(['message' => 'Hanya pemilik (owner) grup yang dapat menghapus atau membubarkan grup.'], 403);
+        }
+
+        // Hapus semua pesan obrolan grup
+        ChatMessage::where('conversation_id', $conversationId)->delete();
+        $conversation->delete();
+
+        try {
+            event(new \App\Events\ConversationUpdated(['id' => $conversationId, 'deleted' => true]));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast failed in destroyConversation: ' . $e->getMessage());
+        }
+
+        return response()->json(['success' => true, 'message' => 'Grup berhasil dihapus.']);
     }
 
     private function seedInitialChat()

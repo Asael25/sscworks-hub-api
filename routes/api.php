@@ -54,6 +54,7 @@ Route::delete('/messages/{id}', [\App\Http\Controllers\Api\ChatController::class
 Route::post('/conversations/{id}/attach-request', [\App\Http\Controllers\Api\ChatController::class, 'attachRequest']);
 Route::post('/conversations/{id}/members', [\App\Http\Controllers\Api\ChatController::class, 'addMembers']);
 Route::delete('/conversations/{id}/members/{memberId}', [\App\Http\Controllers\Api\ChatController::class, 'removeMember']);
+Route::delete('/conversations/{id}', [\App\Http\Controllers\Api\ChatController::class, 'destroyConversation']);
 Route::post('/conversations/{id}/read', [\App\Http\Controllers\Api\ChatController::class, 'markRead']);
 Route::post('/chat/purge-expired', [\App\Http\Controllers\Api\ChatController::class, 'purgeExpired']);
 Route::post('/chat/clear-all', [\App\Http\Controllers\Api\ChatController::class, 'clearAll']);
