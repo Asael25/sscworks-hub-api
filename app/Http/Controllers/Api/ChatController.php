@@ -102,6 +102,117 @@ class ChatController extends Controller
         return response()->json($users);
     }
 
+    public function getChatRequests(Request $request)
+    {
+        $requests = [];
+
+        // 1. Legal Requests (Telaah / Review Hukum)
+        try {
+            $legals = \App\Models\LegalRequest::orderBy('created_at', 'desc')->get();
+            foreach ($legals as $lgl) {
+                $status = $lgl->status ?: 'In Process';
+                $formattedStatus = ucwords(str_replace('_', ' ', $status));
+                $code = $lgl->request_code ?: "LGL-{$lgl->id}";
+
+                $requests[] = [
+                    'id' => (string)$code,
+                    'code' => (string)$code,
+                    'type' => 'Legal Operation',
+                    'title' => (string)($lgl->title ?: 'Legal Request'),
+                    'unit' => (string)($lgl->unit ?: 'Head Office'),
+                    'status' => $formattedStatus,
+                ];
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Error loading LegalRequests for chat: ' . $e->getMessage());
+        }
+
+        // 2. Customer Projects (Proyek Pelanggan)
+        try {
+            $projects = \App\Models\CustomerProject::orderBy('created_at', 'desc')->get();
+            foreach ($projects as $cp) {
+                $status = $cp->status ?: 'Active';
+                $title = $cp->name . ($cp->customer ? " — {$cp->customer}" : '');
+
+                $requests[] = [
+                    'id' => (string)$cp->id,
+                    'code' => (string)$cp->id,
+                    'type' => 'Customer Project',
+                    'title' => (string)$title,
+                    'unit' => (string)($cp->unit ?: 'Head Office'),
+                    'status' => (string)$status,
+                ];
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Error loading CustomerProjects for chat: ' . $e->getMessage());
+        }
+
+        // 3. Internal Construction Works (Pekerjaan Konstruksi & SPK)
+        try {
+            $constructions = \App\Models\ConstructionWork::orderBy('created_at', 'desc')->get();
+            foreach ($constructions as $cw) {
+                $status = $cw->status ?: 'Active';
+                $title = $cw->name . ($cw->vendor ? " — {$cw->vendor}" : '');
+                $code = $cw->contract_number ?: $cw->id;
+
+                $requests[] = [
+                    'id' => (string)$cw->id,
+                    'code' => (string)$code,
+                    'type' => 'Internal Construction',
+                    'title' => (string)$title,
+                    'unit' => (string)($cw->unit ?: 'Head Office'),
+                    'status' => (string)$status,
+                ];
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Error loading ConstructionWorks for chat: ' . $e->getMessage());
+        }
+
+        // 4. Document Center Key Documents (SOP, Kebijakan, Sertifikasi, dll.)
+        try {
+            $docs = \App\Models\Document::whereNotNull('file_name')
+                ->where(function ($q) {
+                    $q->whereIn('category', ['General Documents', 'Vendor Documents', 'Contracts', 'Legal', 'Construction'])
+                      ->orWhereNull('related_request')
+                      ->orWhere('related_request', '-')
+                      ->orWhere('related_request', '');
+                })
+                ->orderBy('uploaded_date', 'desc')
+                ->limit(25)
+                ->get();
+
+            foreach ($docs as $doc) {
+                $title = $doc->related_title ? "{$doc->related_title} ({$doc->file_name})" : $doc->file_name;
+                $requests[] = [
+                    'id' => (string)$doc->id,
+                    'code' => (string)$doc->id,
+                    'type' => 'Document Center',
+                    'title' => (string)$title,
+                    'unit' => (string)($doc->unit ?: 'All Units'),
+                    'status' => (string)($doc->status ?: 'Active'),
+                ];
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Error loading Documents for chat: ' . $e->getMessage());
+        }
+
+        // 5. Fallback item riwayat lampau (rr-1 s/d rr-6) agar percakapan lama tetap terbaca rapi
+        $legacy = [
+            ['id' => 'rr-1', 'code' => 'CTR-2026-0142', 'type' => 'Legal Operation', 'title' => 'Vendor service agreement — PT Sinar Abadi', 'unit' => 'Head Office', 'status' => 'In Process'],
+            ['id' => 'rr-2', 'code' => 'CTR-2026-0155', 'type' => 'Legal Operation', 'title' => 'Office lease renewal — Surabaya', 'unit' => 'Branch Surabaya', 'status' => 'Waiting Review'],
+            ['id' => 'rr-3', 'code' => 'CPJ-2026-0031', 'type' => 'Customer Project', 'title' => 'Warehouse automation rollout', 'unit' => 'Project Cikarang', 'status' => 'Active'],
+            ['id' => 'rr-4', 'code' => 'CSH-2026-0908', 'type' => 'Cashflow / Finance', 'title' => 'Down payment disbursement Q3', 'unit' => 'Head Office', 'status' => 'Pending Approval'],
+            ['id' => 'rr-5', 'code' => 'BGT-2026-0077', 'type' => 'Budget Request', 'title' => 'Additional GA budget — facility repair', 'unit' => 'Branch Medan', 'status' => 'Waiting Review'],
+            ['id' => 'rr-6', 'code' => 'VND-2026-0210', 'type' => 'Vendor Management', 'title' => 'New vendor onboarding — CV Mitra Jaya', 'unit' => 'Branch Bandung', 'status' => 'Draft'],
+        ];
+
+        foreach ($legacy as $leg) {
+            $requests[] = $leg;
+        }
+
+        return response()->json($requests);
+    }
+
     public function getPresence(Request $request)
     {
         $threshold = Carbon::now()->subSeconds(\App\Models\User::ONLINE_THRESHOLD_SECONDS);
@@ -470,6 +581,29 @@ class ChatController extends Controller
             event(new \App\Events\ConversationUpdated($summary));
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Broadcast failed in attachRequest: ' . $e->getMessage());
+        }
+
+        return response()->json($summary);
+    }
+
+    public function detachRequest(Request $request, $conversationId, $requestId)
+    {
+        $conversation = Conversation::findOrFail($conversationId);
+        $current = $conversation->related_request_ids ?? [];
+
+        $cleanTarget = strtolower($requestId);
+        $updated = array_values(array_filter($current, function ($id) use ($cleanTarget) {
+            return strtolower($id) !== $cleanTarget;
+        }));
+
+        $conversation->update(['related_request_ids' => $updated]);
+
+        $summary = $conversation->toFrontendSummary();
+
+        try {
+            event(new \App\Events\ConversationUpdated($summary));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast failed in detachRequest: ' . $e->getMessage());
         }
 
         return response()->json($summary);
