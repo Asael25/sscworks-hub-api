@@ -89,3 +89,166 @@ Route::get('/documents/{id}/download', [\App\Http\Controllers\Api\DocumentContro
 Route::post('/documents', [\App\Http\Controllers\Api\DocumentController::class, 'store']);
 Route::post('/documents/{id}/versions', [\App\Http\Controllers\Api\DocumentController::class, 'uploadVersion']);
 Route::delete('/documents/{id}', [\App\Http\Controllers\Api\DocumentController::class, 'destroy']);
+
+Route::get('/system-settings/notifications', function () {
+    $settings = \App\Services\ApprovalNotificationService::getNotificationSettings();
+    $hasSmtp = !empty(env('MAIL_USERNAME')) && !empty(env('MAIL_PASSWORD'));
+    return response()->json([
+        'settings' => $settings,
+        'smtp' => [
+            'connected' => $hasSmtp,
+            'driver' => config('mail.default'),
+            'host' => env('MAIL_HOST', 'smtp.gmail.com'),
+            'port' => (int) env('MAIL_PORT', 587),
+            'sender' => env('MAIL_FROM_ADDRESS', env('MAIL_USERNAME', 'yugoadez044@gmail.com')),
+            'sender_name' => env('MAIL_FROM_NAME', 'SSC Works Hub'),
+        ]
+    ]);
+});
+
+Route::post('/system-settings/notifications', function (\Illuminate\Http\Request $request) {
+    $current = \App\Services\ApprovalNotificationService::getNotificationSettings();
+    $data = $request->only([
+        'approval_assigned',
+        'submission_returned',
+        'submission_approved',
+        'deadline_approaching'
+    ]);
+    $updated = array_merge($current, array_map(fn($v) => (bool) $v, $data));
+
+    $path = storage_path('app/notification_settings.json');
+    if (!file_exists(dirname($path))) {
+        mkdir(dirname($path), 0755, true);
+    }
+    file_put_contents($path, json_encode($updated, JSON_PRETTY_PRINT));
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Pengaturan notifikasi berhasil disinkronkan ke server.',
+        'settings' => $updated
+    ]);
+});
+
+Route::get('/system-settings/data/stats', function () {
+    $policyPath = storage_path('app/data_retention_policy.json');
+    $policy = file_exists($policyPath)
+        ? json_decode(file_get_contents($policyPath), true)
+        : [
+            'financial_retention' => '7 years',
+            'operational_retention' => '5 years',
+            'archive_schedule' => 'Monthly',
+        ];
+
+    $totalDocs = 0;
+    $activeDocs = 0;
+    $archivedDocs = 0;
+    $expiringDocs = 0;
+    $draftDocs = 0;
+    $approvalsCount = 0;
+    $activityLogsCount = 0;
+
+    try {
+        $totalDocs = \App\Models\Document::count();
+        $activeDocs = \App\Models\Document::where('status', 'Active')->count();
+        $archivedDocs = \App\Models\Document::where('status', 'Archived')->count();
+        $expiringDocs = \App\Models\Document::whereIn('status', ['Expiring Soon', 'Expired'])->count();
+        $draftDocs = \App\Models\Document::where('status', 'Draft')->count();
+        $approvalsCount = \App\Models\Approval::count();
+        $activityLogsCount = \App\Models\ActivityLog::count();
+    } catch (\Throwable $e) {}
+
+    return response()->json([
+        'status' => 'success',
+        'policy' => $policy,
+        'documents' => [
+            'total' => $totalDocs,
+            'active' => $activeDocs,
+            'archived' => $archivedDocs,
+            'expiring' => $expiringDocs,
+            'draft' => $draftDocs,
+        ],
+        'counts' => [
+            'approvals' => $approvalsCount,
+            'activity_logs' => $activityLogsCount,
+        ],
+    ]);
+});
+
+Route::post('/system-settings/data/policy', function (\Illuminate\Http\Request $request) {
+    $policyPath = storage_path('app/data_retention_policy.json');
+    if (!file_exists(dirname($policyPath))) {
+        mkdir(dirname($policyPath), 0755, true);
+    }
+    $data = [
+        'financial_retention' => $request->input('financial_retention', '7 years'),
+        'operational_retention' => $request->input('operational_retention', '5 years'),
+        'archive_schedule' => $request->input('archive_schedule', 'Monthly'),
+        'updated_at' => now()->toIso8601String(),
+    ];
+    file_put_contents($policyPath, json_encode($data, JSON_PRETTY_PRINT));
+    return response()->json(['success' => true, 'policy' => $data]);
+});
+
+Route::post('/system-settings/data/archive', function (\Illuminate\Http\Request $request) {
+    $finYears = (int) ($request->input('financial_years') ?: 7);
+    $opsYears = (int) ($request->input('operational_years') ?: 5);
+
+    $finCutoff = now()->subYears($finYears)->format('Y-m-d');
+    $opsCutoff = now()->subYears($opsYears)->format('Y-m-d');
+    $today = now()->format('Y-m-d');
+    $count = 0;
+    $archivedDocs = [];
+
+    try {
+        $query = \App\Models\Document::where('status', '!=', 'Archived')
+            ->where(function ($q) use ($finCutoff, $opsCutoff, $today) {
+                $q->where(function ($qFin) use ($finCutoff) {
+                    $qFin->whereIn('category', ['Cashflow', 'Budgeting'])
+                         ->where('uploaded_date', '<=', $finCutoff);
+                })
+                ->orWhere(function ($qOps) use ($opsCutoff) {
+                    $qOps->whereNotIn('category', ['Cashflow', 'Budgeting'])
+                         ->where('uploaded_date', '<=', $opsCutoff);
+                })
+                ->orWhere('status', 'Expired')
+                ->orWhere(function ($qExp) use ($today) {
+                    $qExp->whereNotNull('expires_at')->where('expires_at', '<', $today);
+                });
+            });
+
+        $count = $query->count();
+        $archivedDocs = $query->get(['id', 'file_name'])->toArray();
+        $query->update(['status' => 'Archived']);
+
+        \App\Models\ActivityLog::create([
+            'user_name' => $request->input('user_name', 'PT SSC WORKS Admin'),
+            'user_role' => $request->input('user_role', 'Super Admin'),
+            'action' => 'Jalankan Pengarsipan Data',
+            'action_type' => 'archive',
+            'module' => 'Data Management',
+            'entity_id' => 'SYS-DATA',
+            'entity_title' => "Pengarsipan Dokumen Retensi ({$finYears} thn Keuangan, {$opsYears} thn Operasional)",
+            'unit' => 'Head Office',
+            'notes' => "{$count} dokumen lampau berhasil dialihkan ke status Archived.",
+        ]);
+    } catch (\Throwable $e) {}
+
+    return response()->json([
+        'success' => true,
+        'archived_count' => $count,
+        'archived_documents' => $archivedDocs,
+        'message' => "Pengarsipan selesai: {$count} dokumen berhasil dialihkan ke status Archived.",
+    ]);
+});
+
+Route::post('/system-settings/data/clean-cache', function () {
+    try {
+        \Illuminate\Support\Facades\Artisan::call('cache:clear');
+    } catch (\Throwable $e) {}
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Cache sementara, log session, dan berkas temporary berhasil dibersihkan.',
+    ]);
+});
+

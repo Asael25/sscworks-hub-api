@@ -84,12 +84,44 @@ class ApprovalNotificationService
     }
 
     /**
+     * Ambil pengaturan preferensi notifikasi sistem (disimpan di storage/app/notification_settings.json)
+     */
+    public static function getNotificationSettings(): array
+    {
+        $path = storage_path('app/notification_settings.json');
+        if (file_exists($path)) {
+            $data = json_decode(file_get_contents($path), true);
+            if (is_array($data)) return $data;
+        }
+        return [
+            'approval_assigned'    => true,
+            'submission_returned'   => true,
+            'submission_approved'   => true,
+            'deadline_approaching'  => true,
+        ];
+    }
+
+    /**
+     * Periksa apakah jenis notifikasi tertentu diaktifkan di System Settings.
+     */
+    public static function isNotificationEnabled(string $key): bool
+    {
+        $settings = self::getNotificationSettings();
+        return (bool) ($settings[$key] ?? true);
+    }
+
+    /**
      * Kirim email notifikasi ke approver aktif yang menunggu tindakan.
      */
     public static function notifyPendingApprover($approvalOrId, ?ApprovalStage $stage = null): bool
     {
         if (!env('APPROVAL_EMAIL_NOTIFICATIONS_ENABLED', true)) {
             Log::info('[ApprovalNotification] Notifikasi email dinonaktifkan di .env (APPROVAL_EMAIL_NOTIFICATIONS_ENABLED=false)');
+            return false;
+        }
+
+        if (!self::isNotificationEnabled('approval_assigned')) {
+            Log::info('[ApprovalNotification] Notifikasi penugasan approval (approval_assigned) dinonaktifkan di System Settings.');
             return false;
         }
 
@@ -295,6 +327,13 @@ class ApprovalNotificationService
             $actionLabel = $actionMap[strtolower($decision)] ?? ucfirst($decision);
 
             // 1. Notifikasi ke pemohon (submitter)
+            $isDecisionNotifEnabled = true;
+            if (strtolower($decision) === 'return') {
+                $isDecisionNotifEnabled = self::isNotificationEnabled('submission_returned');
+            } elseif (strtolower($decision) === 'approve') {
+                $isDecisionNotifEnabled = self::isNotificationEnabled('submission_approved');
+            }
+
             $submitterTarget = $approval->submitted_by_id ?: $approval->submitted_by;
             $submitterUser = self::resolveUser($submitterTarget);
 
@@ -302,7 +341,7 @@ class ApprovalNotificationService
                 $submitterUser = self::resolveUser($approval->submitted_by);
             }
 
-            if ($submitterUser && !empty($submitterUser->identifier)) {
+            if ($isDecisionNotifEnabled && $submitterUser && !empty($submitterUser->identifier)) {
                 $targetEmail = $submitterUser->identifier;
                 $recipientEmail = self::normalizeRecipientEmail($targetEmail);
                 $recipientName = $submitterUser->name ?: $submitterUser->username ?: $approval->submitted_by;
@@ -348,8 +387,10 @@ class ApprovalNotificationService
 
             // 2. Jika disetujui dan masih ada tahap berikutnya (status = In Review), kirim notifikasi ke reviewer tahap selanjutnya
             if (strtolower($decision) === 'approve' && $approval->status === 'In Review') {
-                $nextStage = $stages->firstWhere('order', $approval->current_stage);
-                self::notifyPendingApprover($approval, $nextStage);
+                if (self::isNotificationEnabled('approval_assigned')) {
+                    $nextStage = $stages->firstWhere('order', $approval->current_stage);
+                    self::notifyPendingApprover($approval, $nextStage);
+                }
             }
 
             return true;
