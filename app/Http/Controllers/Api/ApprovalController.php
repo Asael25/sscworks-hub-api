@@ -164,9 +164,28 @@ class ApprovalController extends Controller
         if ($currentStage && $user && !$isSuperAdmin) {
             if ($currentStage->approver) {
                 $targetApprover = strtolower(trim($currentStage->approver));
-                $isNameMatch = strtolower(trim($user->name)) === $targetApprover;
-                $isUsernameMatch = strtolower(trim($user->username ?? '')) === $targetApprover;
-                $isEmailMatch = strtolower(trim($user->identifier ?? '')) === $targetApprover;
+                $userName = strtolower(trim($user->name ?? ''));
+                $userUsername = strtolower(trim($user->username ?? ''));
+                $userIdentifier = strtolower(trim($user->identifier ?? ''));
+                $userEmailPrefix = explode('@', $userIdentifier)[0];
+
+                $nameWords = array_filter(preg_split('/\s+/', $userName));
+                $targetWords = array_filter(preg_split('/\s+/', $targetApprover));
+                $isWordMatch = false;
+                foreach ($nameWords as $nw) {
+                    if (in_array($nw, $targetWords)) {
+                        $isWordMatch = true;
+                        break;
+                    }
+                }
+
+                $isNameMatch = ($userName === $targetApprover)
+                    || str_contains($userName, $targetApprover)
+                    || str_contains($targetApprover, $userName)
+                    || $isWordMatch;
+                $isUsernameMatch = ($userUsername === $targetApprover);
+                $isEmailMatch = ($userIdentifier === $targetApprover) || ($userEmailPrefix === $targetApprover);
+
                 if (!$isNameMatch && !$isUsernameMatch && !$isEmailMatch) {
                     return response()->json(['message' => "Tahap aktif ditugaskan kepada {$currentStage->approver}."], 422);
                 }
@@ -275,7 +294,7 @@ class ApprovalController extends Controller
                                 ]
                             );
                         }
-                    } else {
+                    } elseif (!str_starts_with($approval->id, 'REV-')) {
                         \App\Models\CustomerProject::where('id', $approval->id)->update(['status' => 'On Schedule']);
                     }
                 } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
@@ -294,7 +313,7 @@ class ApprovalController extends Controller
                         } else {
                             \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Approved']);
                         }
-                    } else {
+                    } elseif (!str_starts_with($approval->id, 'REV-')) {
                         \App\Models\ConstructionWork::where('id', $approval->id)->update(['status' => 'On Schedule']);
                     }
                 } elseif (in_array($approval->module, ['Legal Operations', 'Legal'])) {
@@ -309,12 +328,18 @@ class ApprovalController extends Controller
                     $revTargetDate = $rev['revisedTargetDate'] ?? null;
                     $itemType = $rev['itemType'] ?? '';
 
-                    $addendum = \App\Models\ContractAddendum::where('approval_id', $approval->id)->first();
+                    $addendum = \App\Models\ContractAddendum::where('approval_id', $approval->id)
+                        ->orWhere(function ($q) use ($targetId) {
+                            if ($targetId) {
+                                $q->where('target_item_id', $targetId)->where('status', 'Waiting Approval');
+                            }
+                        })
+                        ->first();
                     if ($addendum) {
                         $addendum->update([
                             'status' => 'Approved',
-                            'approved_by' => $actor,
-                            'approved_at' => date('d M Y, H:i'),
+                            'approved_by' => $actorName,
+                            'approved_at' => now()->translatedFormat('d M Y, H:i'),
                         ]);
                     }
 
@@ -342,6 +367,23 @@ class ApprovalController extends Controller
             $approval->status = 'Returned';
             if (str_starts_with($approval->id, 'WPR-')) {
                 \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Revision Required']);
+            }
+            if (!empty($notesData['isContractRevision']) || str_starts_with($approval->request, 'Revisi Kontrak:')) {
+                $rev = $notesData['contractRevision'] ?? [];
+                $targetId = $rev['itemId'] ?? ($notesData['targetItemId'] ?? null);
+                $addendum = \App\Models\ContractAddendum::where('approval_id', $approval->id)
+                    ->orWhere(function ($q) use ($targetId) {
+                        if ($targetId) {
+                            $q->where('target_item_id', $targetId)->where('status', 'Waiting Approval');
+                        }
+                    })
+                    ->first();
+                if ($addendum) {
+                    $addendum->update([
+                        'status' => 'Returned',
+                        'rejection_reason' => $reason ?: 'Dikembalikan oleh Approver untuk perbaikan',
+                    ]);
+                }
             }
         } else {
             $actionLabel = 'Rejected';
@@ -375,11 +417,19 @@ class ApprovalController extends Controller
             }
 
             if (!empty($notesData['isContractRevision']) || str_starts_with($approval->request, 'Revisi Kontrak:')) {
-                $addendum = \App\Models\ContractAddendum::where('approval_id', $approval->id)->first();
+                $rev = $notesData['contractRevision'] ?? [];
+                $targetId = $rev['itemId'] ?? ($notesData['targetItemId'] ?? null);
+                $addendum = \App\Models\ContractAddendum::where('approval_id', $approval->id)
+                    ->orWhere(function ($q) use ($targetId) {
+                        if ($targetId) {
+                            $q->where('target_item_id', $targetId)->where('status', 'Waiting Approval');
+                        }
+                    })
+                    ->first();
                 if ($addendum) {
                     $addendum->update([
                         'status' => 'Rejected',
-                        'rejection_reason' => $validated['reason'] ?? 'Ditolak oleh Approver',
+                        'rejection_reason' => $reason ?: 'Ditolak oleh Approver',
                     ]);
                 }
             }
@@ -407,6 +457,12 @@ class ApprovalController extends Controller
             $actorName,
             $actorRole
         );
+
+        $notesData = [];
+        if (!empty($fresh->notes) && str_starts_with(trim($fresh->notes), '{')) {
+            $notesData = json_decode($fresh->notes, true) ?: [];
+        }
+        $isDelReq = !empty($notesData['isDeletionRequest']) || str_starts_with($fresh->request, 'Permohonan Hapus:');
 
         $formatted = [
             'id' => $fresh->id,
@@ -451,6 +507,12 @@ class ApprovalController extends Controller
                 ];
             }),
             'notes' => $fresh->notes ?? '',
+            'isDeletionRequest' => (bool) $isDelReq,
+            'deletionReason' => $notesData['deletionReason'] ?? ($isDelReq ? $fresh->summary : null),
+            'targetItemId' => $notesData['targetItemId'] ?? null,
+            'originalStatus' => $notesData['originalStatus'] ?? null,
+            'isContractRevision' => !empty($notesData['isContractRevision']) || str_starts_with($fresh->request, 'Revisi Kontrak:'),
+            'contractRevision' => $notesData['contractRevision'] ?? null,
         ];
 
         return response()->json([
@@ -581,9 +643,13 @@ class ApprovalController extends Controller
         $diffStr = ($diff >= 0 ? '+' : '-') . 'Rp ' . number_format(abs($diff), 0, ',', '.');
         $summary = "Addendum #{$addendumNumber}: Penyesuaian Nilai Rp " . number_format($validated['previousAmount'], 0, ',', '.') . " ➔ Rp " . number_format($validated['revisedAmount'], 0, ',', '.') . " ({$diffStr})" . ($validated['revisedTargetDate'] ? ", Target: {$validated['revisedTargetDate']}" : "");
 
+        // Cek apakah dokumen induk memiliki alur persetujuan (stages) aktif
+        $parentApproval = Approval::with('stages')->find($validated['itemId']);
+        $moduleName = $parentApproval ? $parentApproval->module : $validated['module'];
+
         $approval = Approval::create([
             'id'              => $revId,
-            'module'          => $validated['module'],
+            'module'          => $moduleName,
             'request'         => 'Revisi Kontrak: ' . $validated['itemName'],
             'summary'         => $summary,
             'unit'            => $unit,
@@ -600,23 +666,35 @@ class ApprovalController extends Controller
             'notes'           => $notesPayload,
         ]);
 
-        \App\Models\ApprovalStage::create([
-            'approval_id' => $revId,
-            'order'       => 1,
-            'name'        => 'Review Branch Manager / Unit Head',
-            'role'        => 'Branch Manager',
-            'approver'    => null,
-            'unit_scope'  => 'Same unit',
-        ]);
+        if ($parentApproval && $parentApproval->stages->isNotEmpty()) {
+            // Warisi tahapan approval yang sama persis dari dokumen induk
+            foreach ($parentApproval->stages->sortBy('order') as $stg) {
+                \App\Models\ApprovalStage::create([
+                    'approval_id' => $revId,
+                    'order'       => $stg->order,
+                    'name'        => $stg->name,
+                    'role'        => $stg->role,
+                    'approver'    => $stg->approver,
+                    'unit_scope'  => $stg->unit_scope,
+                ]);
+            }
 
-        \App\Models\ApprovalStage::create([
-            'approval_id' => $revId,
-            'order'       => 2,
-            'name'        => 'Persetujuan Final General Manager',
-            'role'        => 'General Manager',
-            'approver'    => 'Lazuardhi Hilman Lathif',
-            'unit_scope'  => 'All units',
-        ]);
+            try {
+                \App\Services\ApprovalNotificationService::notifyPendingApprover($revId);
+                \App\Services\ApprovalNotificationService::notifySubmissionReceipt($revId);
+            } catch (\Throwable $th) {
+                \Log::warning("Notification email error: " . $th->getMessage());
+            }
+        } else {
+            // Gunakan WorkflowEngine sesuai konfigurasi System Settings (WorkflowEngine sudah otomatis kirim notifikasi)
+            \App\Services\WorkflowEngine::attachStagesToApproval(
+                $revId,
+                $moduleName,
+                'Revisi Kontrak',
+                (float) $validated['revisedAmount'],
+                $unit
+            );
+        }
 
         $addendum = \App\Models\ContractAddendum::create([
             'addendum_id'          => $addendumId,
@@ -656,12 +734,6 @@ class ApprovalController extends Controller
             'at'          => date('d M Y, H:i'),
         ]);
 
-        try {
-            \App\Services\ApprovalNotificationService::notifyPendingApprover($approval);
-            \App\Services\ApprovalNotificationService::notifySubmissionReceipt($approval);
-        } catch (\Throwable $th) {
-            \Log::warning("Notification email error: " . $th->getMessage());
-        }
 
         return response()->json([
             'ok'       => true,
