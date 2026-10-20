@@ -111,6 +111,8 @@ class ApprovalController extends Controller
                 'deletionReason' => $notesData['deletionReason'] ?? ($isDelReq ? $item->summary : null),
                 'targetItemId' => $notesData['targetItemId'] ?? null,
                 'originalStatus' => $notesData['originalStatus'] ?? null,
+                'isContractRevision' => !empty($notesData['isContractRevision']) || str_starts_with($item->request, 'Revisi Kontrak:'),
+                'contractRevision' => $notesData['contractRevision'] ?? null,
             ];
         });
 
@@ -298,6 +300,42 @@ class ApprovalController extends Controller
                 } elseif (in_array($approval->module, ['Legal Operations', 'Legal'])) {
                     \App\Models\LegalRequest::where('request_code', $approval->id)->orWhere('id', $approval->id)->update(['status' => 'completed']);
                 }
+
+                // Handler jika approval adalah Revisi Kontrak / Addendum
+                if (!empty($notesData['isContractRevision']) || str_starts_with($approval->request, 'Revisi Kontrak:')) {
+                    $rev = $notesData['contractRevision'] ?? [];
+                    $targetId = $rev['itemId'] ?? ($notesData['targetItemId'] ?? null);
+                    $revAmount = isset($rev['revisedAmount']) ? (float)$rev['revisedAmount'] : (float)$approval->amount;
+                    $revTargetDate = $rev['revisedTargetDate'] ?? null;
+                    $itemType = $rev['itemType'] ?? '';
+
+                    $addendum = \App\Models\ContractAddendum::where('approval_id', $approval->id)->first();
+                    if ($addendum) {
+                        $addendum->update([
+                            'status' => 'Approved',
+                            'approved_by' => $actor,
+                            'approved_at' => date('d M Y, H:i'),
+                        ]);
+                    }
+
+                    if ($itemType === 'construction' || in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
+                        $work = \App\Models\ConstructionWork::find($targetId);
+                        if ($work) {
+                            $updatePayload = [];
+                            if ($revAmount > 0) $updatePayload['budget'] = $revAmount;
+                            if ($revTargetDate) $updatePayload['target_date'] = $revTargetDate;
+                            $work->update($updatePayload);
+                        }
+                    } elseif ($itemType === 'customer-project' || in_array($approval->module, ['Customer Project', 'Project Customer'])) {
+                        $project = \App\Models\CustomerProject::find($targetId);
+                        if ($project) {
+                            $updatePayload = [];
+                            if ($revAmount > 0) $updatePayload['contract_value'] = $revAmount;
+                            if ($revTargetDate) $updatePayload['deadline'] = $revTargetDate;
+                            $project->update($updatePayload);
+                        }
+                    }
+                }
             }
         } elseif ($decision === 'return') {
             $actionLabel = 'Returned';
@@ -334,6 +372,16 @@ class ApprovalController extends Controller
                 }
             } elseif (str_starts_with($approval->id, 'WPR-')) {
                 \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Rejected']);
+            }
+
+            if (!empty($notesData['isContractRevision']) || str_starts_with($approval->request, 'Revisi Kontrak:')) {
+                $addendum = \App\Models\ContractAddendum::where('approval_id', $approval->id)->first();
+                if ($addendum) {
+                    $addendum->update([
+                        'status' => 'Rejected',
+                        'rejection_reason' => $validated['reason'] ?? 'Ditolak oleh Approver',
+                    ]);
+                }
             }
         }
 
@@ -480,6 +528,159 @@ class ApprovalController extends Controller
             'ok' => true,
             'id' => $delId,
             'message' => 'Permohonan penghapusan data telah dikirim ke Super Admin.',
+        ], 201);
+    }
+
+    public function requestRevision(Request $request)
+    {
+        $validated = $request->validate([
+            'module'             => 'required|string',
+            'itemType'           => 'required|string|in:construction,customer-project',
+            'itemId'             => 'required|string',
+            'itemName'           => 'required|string',
+            'unit'               => 'nullable|string',
+            'submittedBy'        => 'nullable|string',
+            'previousAmount'     => 'required|numeric',
+            'revisedAmount'      => 'required|numeric',
+            'previousTargetDate' => 'nullable|string',
+            'revisedTargetDate'  => 'nullable|string',
+            'reason'             => 'required|string|min:5',
+            'documentName'       => 'nullable|string',
+            'documentUrl'        => 'nullable|string',
+        ]);
+
+        $revId = 'REV-' . date('Ymd') . '-' . substr(strtoupper(uniqid()), -4);
+        $addendumId = 'ADD-' . date('Ymd') . '-' . substr(strtoupper(uniqid()), -4);
+        $unit = $validated['unit'] ?? 'Head Office';
+        $pic = $validated['submittedBy'] ?? 'User';
+        $picId = strtolower(str_replace(' ', '', $pic));
+
+        $existingCount = \App\Models\ContractAddendum::where('target_item_id', $validated['itemId'])->count();
+        $addendumNumber = $existingCount + 1;
+
+        $notesPayload = json_encode([
+            'isContractRevision' => true,
+            'targetItemId'       => $validated['itemId'],
+            'contractRevision'   => [
+                'addendumId'         => $addendumId,
+                'addendumNumber'     => $addendumNumber,
+                'itemType'           => $validated['itemType'],
+                'itemId'             => $validated['itemId'],
+                'itemName'           => $validated['itemName'],
+                'previousAmount'     => (float) $validated['previousAmount'],
+                'revisedAmount'      => (float) $validated['revisedAmount'],
+                'previousTargetDate' => $validated['previousTargetDate'] ?? '',
+                'revisedTargetDate'  => $validated['revisedTargetDate'] ?? '',
+                'reason'             => $validated['reason'],
+                'documentName'       => $validated['documentName'] ?? null,
+                'documentUrl'        => $validated['documentUrl'] ?? null,
+            ],
+        ]);
+
+        $diff = (float)$validated['revisedAmount'] - (float)$validated['previousAmount'];
+        $diffStr = ($diff >= 0 ? '+' : '-') . 'Rp ' . number_format(abs($diff), 0, ',', '.');
+        $summary = "Addendum #{$addendumNumber}: Penyesuaian Nilai Rp " . number_format($validated['previousAmount'], 0, ',', '.') . " ➔ Rp " . number_format($validated['revisedAmount'], 0, ',', '.') . " ({$diffStr})" . ($validated['revisedTargetDate'] ? ", Target: {$validated['revisedTargetDate']}" : "");
+
+        $approval = Approval::create([
+            'id'              => $revId,
+            'module'          => $validated['module'],
+            'request'         => 'Revisi Kontrak: ' . $validated['itemName'],
+            'summary'         => $summary,
+            'unit'            => $unit,
+            'submitted_by'    => $pic,
+            'submitted_by_id' => $picId,
+            'submitted_date'  => date('d M Y'),
+            'period'          => date('M Y'),
+            'amount'          => (float) $validated['revisedAmount'],
+            'amount_label'    => 'Rp ' . number_format($validated['revisedAmount'], 0, ',', '.'),
+            'current_stage'   => 1,
+            'priority'        => 'High',
+            'status'          => 'Waiting',
+            'due_date'        => date('Y-m-d', strtotime('+5 days')),
+            'notes'           => $notesPayload,
+        ]);
+
+        \App\Models\ApprovalStage::create([
+            'approval_id' => $revId,
+            'order'       => 1,
+            'name'        => 'Review Branch Manager / Unit Head',
+            'role'        => 'Branch Manager',
+            'approver'    => null,
+            'unit_scope'  => 'Same unit',
+        ]);
+
+        \App\Models\ApprovalStage::create([
+            'approval_id' => $revId,
+            'order'       => 2,
+            'name'        => 'Persetujuan Final General Manager',
+            'role'        => 'General Manager',
+            'approver'    => 'Lazuardhi Hilman Lathif',
+            'unit_scope'  => 'All units',
+        ]);
+
+        $addendum = \App\Models\ContractAddendum::create([
+            'addendum_id'          => $addendumId,
+            'module'               => $validated['module'],
+            'target_item_id'       => $validated['itemId'],
+            'addendum_number'      => $addendumNumber,
+            'approval_id'          => $revId,
+            'previous_amount'      => (float) $validated['previousAmount'],
+            'revised_amount'       => (float) $validated['revisedAmount'],
+            'previous_target_date' => $validated['previousTargetDate'],
+            'revised_target_date'  => $validated['revisedTargetDate'],
+            'reason'               => $validated['reason'],
+            'document_name'        => $validated['documentName'],
+            'document_url'         => $validated['documentUrl'],
+            'status'               => 'Waiting Approval',
+            'submitted_by'         => $pic,
+            'submitted_date'       => date('d M Y'),
+        ]);
+
+        if (!empty($validated['documentName'])) {
+            \App\Models\ApprovalAttachment::create([
+                'approval_id' => $revId,
+                'name'        => $validated['documentName'],
+                'size'        => 'Dokumen Addendum PDF',
+                'type'        => 'application/pdf',
+                'file_url'    => $validated['documentUrl'] ?? null,
+                'file_path'   => $validated['documentUrl'] ?? null,
+            ]);
+        }
+
+        \App\Models\ApprovalHistory::create([
+            'approval_id' => $revId,
+            'actor'       => $pic,
+            'role'        => 'Pemohon',
+            'action'      => 'Pengajuan Revisi Kontrak (Addendum) Diajukan',
+            'note'        => $validated['reason'],
+            'at'          => date('d M Y, H:i'),
+        ]);
+
+        try {
+            \App\Services\ApprovalNotificationService::notifyPendingApprover($approval);
+            \App\Services\ApprovalNotificationService::notifySubmissionReceipt($approval);
+        } catch (\Throwable $th) {
+            \Log::warning("Notification email error: " . $th->getMessage());
+        }
+
+        return response()->json([
+            'ok'       => true,
+            'id'       => $revId,
+            'addendum' => [
+                'id'                 => $addendum->addendum_id,
+                'addendumNumber'     => (int) $addendum->addendum_number,
+                'submissionDate'     => $addendum->submitted_date,
+                'effectiveDate'      => null,
+                'previousBudget'     => (float) $addendum->previous_amount,
+                'revisedBudget'      => (float) $addendum->revised_amount,
+                'previousTargetDate' => $addendum->previous_target_date,
+                'revisedTargetDate'  => $addendum->revised_target_date,
+                'reason'             => $addendum->reason,
+                'documentName'       => $addendum->document_name,
+                'documentUrl'        => $addendum->document_url,
+                'status'             => $addendum->status,
+            ],
+            'message'  => "Pengajuan revisi kontrak #{$addendumNumber} telah dikirim ke Approval Center.",
         ], 201);
     }
 

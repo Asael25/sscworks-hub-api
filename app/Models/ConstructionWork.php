@@ -50,4 +50,9 @@ class ConstructionWork extends Model
     {
         return $this->hasMany(ConstructionApproval::class, 'work_id', 'id');
     }
+
+    public function addenda()
+    {
+        return $this->hasMany(ContractAddendum::class, 'target_item_id', 'id')->orderBy('addendum_number', 'asc');
+    }
 }

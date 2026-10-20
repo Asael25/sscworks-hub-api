@@ -48,4 +48,9 @@ class CustomerProject extends Model
     {
         return $this->hasMany(CustomerProjectApproval::class, 'project_id', 'id');
     }
+
+    public function addenda()
+    {
+        return $this->hasMany(ContractAddendum::class, 'target_item_id', 'id')->orderBy('addendum_number', 'asc');
+    }
 }

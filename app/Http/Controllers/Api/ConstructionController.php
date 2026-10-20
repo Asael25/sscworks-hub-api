@@ -18,7 +18,7 @@ class ConstructionController extends Controller
 {
     public function index(Request $request)
     {
-        $query = ConstructionWork::with(['scopes', 'weeklyProgresses', 'issues', 'photos', 'approvals', 'attachments'])
+        $query = ConstructionWork::with(['scopes', 'weeklyProgresses', 'issues', 'photos', 'approvals', 'attachments', 'addenda'])
             ->orderBy('created_at', 'desc');
 
         $identifier = $request->header('X-User-Identifier');
@@ -144,6 +144,26 @@ class ConstructionController extends Controller
                         'state' => $app->state,
                     ];
                 }),
+                'addenda' => $item->addenda ? $item->addenda->map(function ($ad) {
+                    return [
+                        'id' => $ad->addendum_id,
+                        'addendumNumber' => (int) $ad->addendum_number,
+                        'submissionDate' => $ad->submitted_date,
+                        'effectiveDate' => $ad->approved_at,
+                        'previousBudget' => (float) $ad->previous_amount,
+                        'revisedBudget' => (float) $ad->revised_amount,
+                        'previousTargetDate' => $ad->previous_target_date,
+                        'revisedTargetDate' => $ad->revised_target_date,
+                        'reason' => $ad->reason,
+                        'documentName' => $ad->document_name,
+                        'documentUrl' => $ad->document_url,
+                        'status' => $ad->status,
+                        'approvedBy' => $ad->approved_by,
+                        'approvedAt' => $ad->approved_at,
+                        'rejectionReason' => $ad->rejection_reason,
+                    ];
+                }) : [],
+                'hasPendingRevision' => $item->addenda ? $item->addenda->where('status', 'Waiting Approval')->count() > 0 : false,
             ];
         });
 

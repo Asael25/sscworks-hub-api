@@ -16,6 +16,7 @@ Route::get('/approvals', [ApprovalController::class, 'index']);
 Route::get('/approvals/preview-email', [ApprovalController::class, 'previewEmail']);
 Route::post('/approvals/test-email', [ApprovalController::class, 'testEmail']);
 Route::post('/approvals/request-deletion', [ApprovalController::class, 'requestDeletion']);
+Route::post('/approvals/request-revision', [ApprovalController::class, 'requestRevision']);
 Route::post('/approvals/{id}/decide', [ApprovalController::class, 'decide']);
 Route::delete('/approvals/{id}', [ApprovalController::class, 'destroy']);
 
