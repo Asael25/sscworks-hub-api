@@ -526,6 +526,7 @@ class ConstructionController extends Controller
             'issues'         => 'nullable|string',
             'correctiveAction'=> 'nullable|string',
             'attachments'    => 'nullable|array',
+            'scopes'         => 'nullable|array',
         ]);
 
         $work = ConstructionWork::find($validated['workId']);
@@ -539,6 +540,31 @@ class ConstructionController extends Controller
         $deviation = (float) ($validated['deviation'] ?? ($actualProgress - $targetProgress));
         $workCompleted = !empty($validated['workCompleted']) ? $validated['workCompleted'] : '-';
         $workPlanned = !empty($validated['workPlanned']) ? $validated['workPlanned'] : '-';
+
+        // Metode A (SOP SSC Works Hub): AP = ∑ (Wi × Pi)
+        // Jika payload scopes dikirim, hitung ulang actualProgress dan perbarui progres per tahapan
+        if (!empty($validated['scopes'])) {
+            $totalWeightedActual = 0;
+            $totalWeightedTarget = 0;
+            foreach ($validated['scopes'] as $sc) {
+                $w = (float)($sc['weight'] ?? 0);
+                $p = (float)($sc['progress'] ?? $sc['actual'] ?? 0);
+                $t = (float)($sc['target'] ?? $sc['weeklyTarget'] ?? 0);
+                $totalWeightedActual += ($w * $p) / 100;
+                $totalWeightedTarget += ($w * $t) / 100;
+
+                if ($work && !empty($sc['scope'])) {
+                    ConstructionScope::where('work_id', $work->id)
+                        ->where('scope', $sc['scope'])
+                        ->update(['actual' => $p]);
+                }
+            }
+            $actualProgress = round($totalWeightedActual, 2);
+            if (!isset($validated['targetProgress']) || $validated['targetProgress'] === null) {
+                $targetProgress = round($totalWeightedTarget, 2);
+            }
+            $deviation = round($actualProgress - $targetProgress, 2);
+        }
 
         // Catatan: Progres fisik resmi master pekerjaan ($work->actual) TIDAK di-update di sini saat submit,
         // melainkan hanya diperbarui setelah laporan mingguan disahkan (status 'Approved') oleh GM di ApprovalController.
