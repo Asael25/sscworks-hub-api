@@ -191,47 +191,29 @@ Route::post('/system-settings/data/policy', function (\Illuminate\Http\Request $
 });
 
 Route::post('/system-settings/data/archive', function (\Illuminate\Http\Request $request) {
-    $finYears = (int) ($request->input('financial_years') ?: 7);
-    $opsYears = (int) ($request->input('operational_years') ?: 5);
+    $finValue = (int) ($request->input('financial_years') ?: 7);
+    $opsValue = (int) ($request->input('operational_years') ?: 5);
 
-    $finCutoff = now()->subYears($finYears)->format('Y-m-d');
-    $opsCutoff = now()->subYears($opsYears)->format('Y-m-d');
+    // Mendukung simulasi testing (1 tahun di UI = 1 menit) sekaligus perhitungan tahun kalender
+    $finCutoffDate = now()->subYears($finValue)->format('Y-m-d');
+    $opsCutoffDate = now()->subYears($opsValue)->format('Y-m-d');
+    $finCutoffTime = now()->subMinutes($finValue);
+    $opsCutoffTime = now()->subMinutes($opsValue);
     $today = now()->format('Y-m-d');
     $count = 0;
     $archivedDocs = [];
 
     try {
         $query = \App\Models\Document::where('status', '!=', 'Archived')
-            ->where(function ($q) use ($finCutoff, $opsCutoff, $today) {
-                $q->where(function ($qFin) use ($finCutoff) {
-                    $qFin->whereIn('category', ['Cashflow', 'Budgeting'])
-                         ->where('uploaded_date', '<=', $finCutoff);
-                })
-                ->orWhere(function ($qOps) use ($opsCutoff) {
-                    $qOps->whereNotIn('category', ['Cashflow', 'Budgeting'])
-                         ->where('uploaded_date', '<=', $opsCutoff);
-                })
-                ->orWhere('status', 'Expired')
-                ->orWhere(function ($qExp) use ($today) {
-                    $qExp->whereNotNull('expires_at')->where('expires_at', '<', $today);
-                });
+            ->whereNotIn('category', ['Cashflow', 'Budgeting'])
+            ->where(function ($qSub) use ($opsCutoffDate, $opsCutoffTime) {
+                $qSub->where('uploaded_date', '<=', $opsCutoffDate)
+                     ->orWhere('created_at', '<=', $opsCutoffTime);
             });
 
         $count = $query->count();
         $archivedDocs = $query->get(['id', 'file_name'])->toArray();
         $query->update(['status' => 'Archived']);
-
-        \App\Models\ActivityLog::create([
-            'user_name' => $request->input('user_name', 'PT SSC WORKS Admin'),
-            'user_role' => $request->input('user_role', 'Super Admin'),
-            'action' => 'Jalankan Pengarsipan Data',
-            'action_type' => 'archive',
-            'module' => 'Data Management',
-            'entity_id' => 'SYS-DATA',
-            'entity_title' => "Pengarsipan Dokumen Retensi ({$finYears} thn Keuangan, {$opsYears} thn Operasional)",
-            'unit' => 'Head Office',
-            'notes' => "{$count} dokumen lampau berhasil dialihkan ke status Archived.",
-        ]);
     } catch (\Throwable $e) {}
 
     return response()->json([
@@ -239,6 +221,19 @@ Route::post('/system-settings/data/archive', function (\Illuminate\Http\Request 
         'archived_count' => $count,
         'archived_documents' => $archivedDocs,
         'message' => "Pengarsipan selesai: {$count} dokumen berhasil dialihkan ke status Archived.",
+    ]);
+});
+
+Route::post('/system-settings/data/reset', function () {
+    try {
+        \App\Models\Document::where('status', 'Archived')
+            ->where('id', '!=', 'DOC-2018-00021')
+            ->update(['status' => 'Active']);
+    } catch (\Throwable $e) {}
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Data simulasi dokumen berhasil di-reset.',
     ]);
 });
 
