@@ -77,6 +77,7 @@ Route::post('/approval-workflows', [\App\Http\Controllers\Api\ApprovalWorkflowCo
 Route::put('/approval-workflows/{id}', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'update']);
 Route::delete('/approval-workflows/{id}', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'destroy']);
 Route::post('/approval-workflows/{id}/toggle-status', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'toggleStatus']);
+Route::post('/approval-workflows/{id}/reset-default', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'resetToDefault']);
 
 Route::get('/system-units', [\App\Http\Controllers\Api\SystemUnitController::class, 'index']);
 Route::post('/system-units', [\App\Http\Controllers\Api\SystemUnitController::class, 'store']);

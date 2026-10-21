@@ -4,10 +4,83 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Approval;
+use App\Models\ApprovalStage;
+use App\Models\ApprovalHistory;
 use Illuminate\Http\Request;
 
 class ApprovalController extends Controller
 {
+    private function formatItem($item)
+    {
+        $notesData = [];
+        if (!empty($item->notes) && str_starts_with(trim($item->notes), '{')) {
+            $decoded = json_decode($item->notes, true);
+            if (is_array($decoded)) {
+                $notesData = $decoded;
+            }
+        }
+        $isDelReq = !empty($notesData['isDeletionRequest']) || str_starts_with($item->request, 'Permohonan Hapus:');
+
+        return [
+            'id' => $item->id,
+            'module' => $item->module,
+            'request' => $item->request,
+            'summary' => $item->summary,
+            'unit' => $item->unit,
+            'submittedBy' => $item->submitted_by,
+            'submittedById' => $item->submitted_by_id,
+            'submittedDate' => $item->submitted_date,
+            'period' => $item->period,
+            'amount' => $item->amount ? (float) $item->amount : null,
+            'amountLabel' => $item->amount_label,
+            'stages' => $item->stages->map(function ($stg) {
+                return [
+                    'id'           => $stg->id,
+                    'order'        => $stg->order,
+                    'stageLevel'   => (int) ($stg->stage_level ?? 1),
+                    'stageName'    => $stg->stage_name ?? ('Tahap ' . ($stg->stage_level ?? 1)),
+                    'isSequential' => (bool) $stg->is_sequential,
+                    'subOrder'     => (int) ($stg->sub_order ?? 1),
+                    'name'         => $stg->name,
+                    'role'         => $stg->role,
+                    'approver'     => $stg->approver,
+                    'unitScope'    => $stg->unit_scope,
+                    'status'       => $stg->status ?? 'Waiting',
+                    'approvedBy'   => $stg->approved_by,
+                    'approvedAt'   => $stg->approved_at,
+                ];
+            }),
+            'currentStage' => $item->current_stage,
+            'priority' => $item->priority,
+            'status' => $item->status,
+            'dueDate' => $item->due_date,
+            'attachments' => $item->attachments->map(function ($att) {
+                return [
+                    'name' => $att->name,
+                    'size' => $att->size,
+                    'type' => $att->type,
+                    'url' => $att->file_url ?? $att->file_path,
+                ];
+            }),
+            'history' => $item->history->map(function ($hst) {
+                return [
+                    'actor' => $hst->actor,
+                    'role' => $hst->role,
+                    'action' => $hst->action,
+                    'note' => $hst->note,
+                    'at' => $hst->at,
+                ];
+            }),
+            'notes' => $item->notes ?? '',
+            'isDeletionRequest' => (bool) $isDelReq,
+            'deletionReason' => $notesData['deletionReason'] ?? ($isDelReq ? $item->summary : null),
+            'targetItemId' => $notesData['targetItemId'] ?? null,
+            'originalStatus' => $notesData['originalStatus'] ?? null,
+            'isContractRevision' => !empty($notesData['isContractRevision']) || str_starts_with($item->request, 'Revisi Kontrak:'),
+            'contractRevision' => $notesData['contractRevision'] ?? null,
+        ];
+    }
+
     public function index(Request $request)
     {
         $query = Approval::with(['stages', 'attachments', 'history'])
@@ -54,67 +127,7 @@ class ApprovalController extends Controller
         $approvals = $query->get();
 
         // Format data sesuai ekspektasi TypeScript Interface Frontend (camelCase)
-        $formatted = $approvals->map(function ($item) {
-            $notesData = [];
-            if (!empty($item->notes) && str_starts_with(trim($item->notes), '{')) {
-                $decoded = json_decode($item->notes, true);
-                if (is_array($decoded)) {
-                    $notesData = $decoded;
-                }
-            }
-            $isDelReq = !empty($notesData['isDeletionRequest']) || str_starts_with($item->request, 'Permohonan Hapus:');
-
-            return [
-                'id' => $item->id,
-                'module' => $item->module,
-                'request' => $item->request,
-                'summary' => $item->summary,
-                'unit' => $item->unit,
-                'submittedBy' => $item->submitted_by,
-                'submittedById' => $item->submitted_by_id,
-                'submittedDate' => $item->submitted_date,
-                'period' => $item->period,
-                'amount' => $item->amount ? (float) $item->amount : null,
-                'amountLabel' => $item->amount_label,
-                'stages' => $item->stages->map(function ($stg) {
-                    return [
-                        'order' => $stg->order,
-                        'name' => $stg->name,
-                        'role' => $stg->role,
-                        'approver' => $stg->approver,
-                        'unitScope' => $stg->unit_scope,
-                    ];
-                }),
-                'currentStage' => $item->current_stage,
-                'priority' => $item->priority,
-                'status' => $item->status,
-                'dueDate' => $item->due_date,
-                'attachments' => $item->attachments->map(function ($att) {
-                    return [
-                        'name' => $att->name,
-                        'size' => $att->size,
-                        'type' => $att->type,
-                        'url' => $att->file_url ?? $att->file_path,
-                    ];
-                }),
-                'history' => $item->history->map(function ($hst) {
-                    return [
-                        'actor' => $hst->actor,
-                        'role' => $hst->role,
-                        'action' => $hst->action,
-                        'note' => $hst->note,
-                        'at' => $hst->at,
-                    ];
-                }),
-                'notes' => $item->notes ?? '',
-                'isDeletionRequest' => (bool) $isDelReq,
-                'deletionReason' => $notesData['deletionReason'] ?? ($isDelReq ? $item->summary : null),
-                'targetItemId' => $notesData['targetItemId'] ?? null,
-                'originalStatus' => $notesData['originalStatus'] ?? null,
-                'isContractRevision' => !empty($notesData['isContractRevision']) || str_starts_with($item->request, 'Revisi Kontrak:'),
-                'contractRevision' => $notesData['contractRevision'] ?? null,
-            ];
-        });
+        $formatted = $approvals->map(fn($item) => $this->formatItem($item));
 
         return response()->json($formatted);
     }
@@ -151,7 +164,21 @@ class ApprovalController extends Controller
         }
 
         $stages = $approval->stages()->orderBy('order')->get();
-        $currentStage = $stages->firstWhere('order', $approval->current_stage) ?? $stages->first();
+        
+        // Dapatkan stages di level/layer aktif
+        $currentLayerStages = $stages->filter(function ($s) use ($approval) {
+            $lvl = $s->stage_level ?: $s->order;
+            return (int) $lvl === (int) $approval->current_stage;
+        });
+
+        if ($currentLayerStages->isEmpty()) {
+            $currentLayerStages = $stages->where('order', $approval->current_stage);
+        }
+        if ($currentLayerStages->isEmpty()) {
+            $currentLayerStages = collect([$stages->first()]);
+        }
+
+        $pendingInLayer = $currentLayerStages->filter(fn($s) => $s->status !== 'Approved');
 
         // Check approver assignment if not superadmin
         $isSuperAdmin = $user && in_array(strtolower(trim($user->role)), [
@@ -161,41 +188,89 @@ class ApprovalController extends Controller
             'it & business system support',
         ]);
 
-        if ($currentStage && $user && !$isSuperAdmin) {
-            if ($currentStage->approver) {
-                $targetApprover = strtolower(trim($currentStage->approver));
-                $userName = strtolower(trim($user->name ?? ''));
-                $userUsername = strtolower(trim($user->username ?? ''));
-                $userIdentifier = strtolower(trim($user->identifier ?? ''));
-                $userEmailPrefix = explode('@', $userIdentifier)[0];
+        $matchedStage = null;
+        $isSequential = (bool) ($currentLayerStages->first()?->is_sequential ?? false);
 
-                $nameWords = array_filter(preg_split('/\s+/', $userName));
-                $targetWords = array_filter(preg_split('/\s+/', $targetApprover));
-                $isWordMatch = false;
-                foreach ($nameWords as $nw) {
-                    if (in_array($nw, $targetWords)) {
-                        $isWordMatch = true;
-                        break;
+        if ($isSuperAdmin) {
+            // Super Admin dapat mewakili approver aktif di layer ini
+            $matchedStage = $isSequential
+                ? $pendingInLayer->sortBy('sub_order')->first()
+                : $pendingInLayer->first();
+        } else {
+            // Cocokkan user login dengan approver yang pending di layer ini
+            foreach ($pendingInLayer as $stg) {
+                $isMatch = false;
+                if ($stg->approver) {
+                    $targetApprover = strtolower(trim($stg->approver));
+                    $userName = strtolower(trim($user->name ?? ''));
+                    $userUsername = strtolower(trim($user->username ?? ''));
+                    $userIdentifier = strtolower(trim($user->identifier ?? ''));
+                    $userEmailPrefix = explode('@', $userIdentifier)[0];
+
+                    $nameWords = array_filter(preg_split('/\s+/', $userName));
+                    $targetWords = array_filter(preg_split('/\s+/', $targetApprover));
+                    $isWordMatch = false;
+                    foreach ($nameWords as $nw) {
+                        if (in_array($nw, $targetWords)) {
+                            $isWordMatch = true;
+                            break;
+                        }
+                    }
+
+                    $isMatch = ($userName === $targetApprover)
+                        || str_contains($userName, $targetApprover)
+                        || str_contains($targetApprover, $userName)
+                        || $isWordMatch
+                        || ($userUsername === $targetApprover)
+                        || ($userIdentifier === $targetApprover)
+                        || ($userEmailPrefix === $targetApprover);
+                } elseif ($stg->role === $user->role) {
+                    $scope = $stg->unit_scope ?? 'All units';
+                    $userUnits = array_filter(array_merge(
+                        [$user->primary_unit],
+                        is_array($user->additional_units) ? $user->additional_units : (json_decode($user->additional_units ?? '[]', true) ?: [])
+                    ));
+                    $isAllUnitUser = in_array('*', $userUnits) || in_array($user->role, ['Super Admin', 'Admin Super']);
+
+                    if ($isAllUnitUser || $scope === 'All units') {
+                        $isMatch = true;
+                    } elseif ($scope === 'Same unit') {
+                        $isMatch = in_array($approval->unit, $userUnits);
+                    } elseif ($scope === 'Head Office') {
+                        $isMatch = in_array('Head Office', $userUnits);
+                    } else {
+                        $isMatch = true;
                     }
                 }
 
-                $isNameMatch = ($userName === $targetApprover)
-                    || str_contains($userName, $targetApprover)
-                    || str_contains($targetApprover, $userName)
-                    || $isWordMatch;
-                $isUsernameMatch = ($userUsername === $targetApprover);
-                $isEmailMatch = ($userIdentifier === $targetApprover) || ($userEmailPrefix === $targetApprover);
-
-                if (!$isNameMatch && !$isUsernameMatch && !$isEmailMatch) {
-                    return response()->json(['message' => "Tahap aktif ditugaskan kepada {$currentStage->approver}."], 422);
+                if ($isMatch) {
+                    // Jika sequential, pastikan sub_order sebelumnya sudah disetujui
+                    if ($isSequential) {
+                        $earlierPending = $pendingInLayer->first(fn($p) => (int)$p->sub_order < (int)$stg->sub_order);
+                        if ($earlierPending) {
+                            return response()->json([
+                                'message' => "Tahap ini wajib berurutan. Harap menunggu persetujuan dari {$earlierPending->name} terlebih dahulu."
+                            ], 422);
+                        }
+                    }
+                    $matchedStage = $stg;
+                    break;
                 }
             }
-            if (!$currentStage->approver && $currentStage->role !== $user->role) {
-                return response()->json(['message' => "Tahap aktif ({$currentStage->name}) memerlukan role {$currentStage->role}."], 422);
+
+            if (!$matchedStage) {
+                $requiredNames = $pendingInLayer->pluck('name')->implode(', ');
+                return response()->json([
+                    'message' => "Anda tidak memiliki hak approval pada tahap aktif saat ini ({$requiredNames})."
+                ], 422);
             }
         }
 
-        $totalStages = $stages->count() ?: 1;
+        // Jika fallback matchedStage masih kosong
+        if (!$matchedStage) {
+            $matchedStage = $pendingInLayer->first() ?? $currentLayerStages->first();
+        }
+
         $actionLabel = 'Approved';
 
         $notesData = [];
@@ -236,7 +311,6 @@ class ApprovalController extends Controller
                         }
                     } elseif (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
                         if ($targetId) {
-                            // customer_project_weekly_progresses relates via project_id, not report_id
                             \App\Models\CustomerProjectWeeklyProgress::where('project_id', $targetId)->delete();
                             \App\Models\CustomerProject::where('id', $targetId)->delete();
                             if (is_numeric($targetId)) {
@@ -248,11 +322,80 @@ class ApprovalController extends Controller
                     \Log::error("Error executing deletion for module {$approval->module}: " . $e->getMessage());
                 }
                 $approval->status = 'Approved';
-            } elseif ($approval->current_stage < $totalStages) {
-                $approval->current_stage += 1;
-                $approval->status = 'In Review';
             } else {
-                $approval->status = 'Approved';
+                // Tandai approval stage spesifik ini sebagai Approved
+                if ($matchedStage) {
+                    $matchedStage->update([
+                        'status'      => 'Approved',
+                        'approved_by' => $actorName,
+                        'approved_at' => date('d M Y, H:i'),
+                    ]);
+                }
+
+                // Cek sisa approver di layer/level aktif ini
+                $remainingInLayer = ApprovalStage::where('approval_id', $approval->id)
+                    ->where(function ($q) use ($approval) {
+                        $q->where('stage_level', $approval->current_stage)
+                          ->orWhere(function ($q2) use ($approval) {
+                              $q2->whereNull('stage_level')->where('order', $approval->current_stage);
+                          });
+                    })
+                    ->where('status', '!=', 'Approved')
+                    ->count();
+
+                // Hitung layer/level berikutnya
+                $distinctLevels = $stages->map(fn($s) => (int) ($s->stage_level ?: $s->order))->unique()->sort()->values();
+                $currentLevelIndex = $distinctLevels->search((int)$approval->current_stage);
+                $hasNextLevel = ($currentLevelIndex !== false && isset($distinctLevels[$currentLevelIndex + 1]));
+                $nextLevel = $hasNextLevel ? $distinctLevels[$currentLevelIndex + 1] : null;
+
+                if ($remainingInLayer > 0) {
+                    // Masih ada approver lain di layer yang sama yang belum approve
+                    $approval->status = 'In Review';
+                    $approval->save();
+
+                    ApprovalHistory::create([
+                        'approval_id' => $approval->id,
+                        'actor'       => $actorName,
+                        'role'        => $actorRole,
+                        'action'      => 'Approved (Layer in Progress)',
+                        'note'        => "{$actorName} ({$actorRole}) menyetujui bagiannya pada {$matchedStage->name}. Menunggu {$remainingInLayer} approver lain di tahap ini sebelum melangkah ke tahap selanjutnya.",
+                        'at'          => date('d M Y, H:i'),
+                    ]);
+
+                    $fresh = $approval->fresh(['stages', 'attachments', 'history']);
+                    return response()->json([
+                        'message'  => "Persetujuan Anda berhasil dicatat. Tiket masih menunggu {$remainingInLayer} persetujuan lainnya di tahap ini.",
+                        'item'     => $this->formatItem($fresh),
+                    ]);
+                } elseif ($hasNextLevel) {
+                    // Seluruh approver di layer ini sudah ACC! Lanjut ke layer berikutnya!
+                    $approval->current_stage = $nextLevel;
+                    $approval->status = 'In Review';
+                    $approval->save();
+
+                    ApprovalHistory::create([
+                        'approval_id' => $approval->id,
+                        'actor'       => $actorName,
+                        'role'        => $actorRole,
+                        'action'      => 'Layer Approved',
+                        'note'        => "Seluruh persetujuan pada " . ($matchedStage->stage_name ?? ("Tahap " . $approval->current_stage)) . " telah lengkap. Tiket melangkah ke Tahap {$nextLevel}.",
+                        'at'          => date('d M Y, H:i'),
+                    ]);
+
+                    \App\Services\ApprovalNotificationService::notifyPendingApprover($approval->id);
+
+                    $fresh = $approval->fresh(['stages', 'attachments', 'history']);
+                    return response()->json([
+                        'message'  => "Seluruh persetujuan di tahap ini telah lengkap. Tiket otomatis melangkah ke tahap berikutnya.",
+                        'item'     => $this->formatItem($fresh),
+                    ]);
+                } else {
+                    // Ini adalah FINAL APPROVAL (semua layer selesai)!
+                    $approval->status = 'Approved';
+                    $approval->save();
+                }
+            }
 
                 // Sync parent record
                 if (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
@@ -361,7 +504,6 @@ class ApprovalController extends Controller
                         }
                     }
                 }
-            }
         } elseif ($decision === 'return') {
             $actionLabel = 'Returned';
             $approval->status = 'Returned';
@@ -458,66 +600,9 @@ class ApprovalController extends Controller
             $actorRole
         );
 
-        $notesData = [];
-        if (!empty($fresh->notes) && str_starts_with(trim($fresh->notes), '{')) {
-            $notesData = json_decode($fresh->notes, true) ?: [];
-        }
-        $isDelReq = !empty($notesData['isDeletionRequest']) || str_starts_with($fresh->request, 'Permohonan Hapus:');
-
-        $formatted = [
-            'id' => $fresh->id,
-            'module' => $fresh->module,
-            'request' => $fresh->request,
-            'summary' => $fresh->summary,
-            'unit' => $fresh->unit,
-            'submittedBy' => $fresh->submitted_by,
-            'submittedById' => $fresh->submitted_by_id,
-            'submittedDate' => $fresh->submitted_date,
-            'period' => $fresh->period,
-            'amount' => $fresh->amount ? (float) $fresh->amount : null,
-            'amountLabel' => $fresh->amount_label,
-            'stages' => $fresh->stages->map(function ($stg) {
-                return [
-                    'order' => $stg->order,
-                    'name' => $stg->name,
-                    'role' => $stg->role,
-                    'approver' => $stg->approver,
-                    'unitScope' => $stg->unit_scope,
-                ];
-            }),
-            'currentStage' => $fresh->current_stage,
-            'priority' => $fresh->priority,
-            'status' => $fresh->status,
-            'dueDate' => $fresh->due_date,
-            'attachments' => $fresh->attachments->map(function ($att) {
-                return [
-                    'name' => $att->name,
-                    'size' => $att->size,
-                    'type' => $att->type,
-                    'url' => $att->file_url,
-                ];
-            }),
-            'history' => $fresh->history->map(function ($hst) {
-                return [
-                    'actor' => $hst->actor,
-                    'role' => $hst->role,
-                    'action' => $hst->action,
-                    'note' => $hst->note,
-                    'at' => $hst->at,
-                ];
-            }),
-            'notes' => $fresh->notes ?? '',
-            'isDeletionRequest' => (bool) $isDelReq,
-            'deletionReason' => $notesData['deletionReason'] ?? ($isDelReq ? $fresh->summary : null),
-            'targetItemId' => $notesData['targetItemId'] ?? null,
-            'originalStatus' => $notesData['originalStatus'] ?? null,
-            'isContractRevision' => !empty($notesData['isContractRevision']) || str_starts_with($fresh->request, 'Revisi Kontrak:'),
-            'contractRevision' => $notesData['contractRevision'] ?? null,
-        ];
-
         return response()->json([
             'message' => "Pengajuan berhasil di-{$actionLabel}.",
-            'item' => $formatted
+            'item' => $this->formatItem($fresh)
         ]);
     }
 

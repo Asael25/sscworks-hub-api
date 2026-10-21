@@ -569,6 +569,21 @@ class CustomerProjectController extends Controller
                 }
             }
 
+            if ($project) {
+                \App\Models\CustomerProjectWeeklyProgress::updateOrCreate(
+                    [
+                        'project_id' => $project->id,
+                        'period'     => $validated['reportingDate'],
+                    ],
+                    [
+                        'target'      => $validated['targetProgress'],
+                        'actual'      => $validated['actualProgress'],
+                        'note'        => "Pekerjaan Selesai: {$validated['workCompleted']}\nRencana: {$validated['workPlanned']}",
+                        'reported_by' => $validated['pic'],
+                    ]
+                );
+            }
+
             WorkflowEngine::attachStagesToApproval(
                 $approvalId,
                 'Project Customer',

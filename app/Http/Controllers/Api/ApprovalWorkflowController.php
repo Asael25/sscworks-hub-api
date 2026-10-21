@@ -20,20 +20,26 @@ class ApprovalWorkflowController extends Controller
 
         $formatted = $workflows->map(function ($wfl) {
             return [
-                'id'        => $wfl->id,
-                'module'    => $wfl->module,
-                'process'   => $wfl->process,
-                'mode'      => $wfl->mode,
-                'status'    => $wfl->status,
-                'stages'    => $wfl->stages->map(function ($stg) {
+                'id'           => $wfl->id,
+                'module'       => $wfl->module,
+                'process'      => $wfl->process,
+                'workflowType' => $wfl->workflow_type ?? 'submission',
+                'mode'         => $wfl->mode,
+                'status'       => $wfl->status,
+                'isCustomized' => (bool) $wfl->is_customized,
+                'stages'       => $wfl->stages->map(function ($stg) {
                     return [
-                        'id'        => 'STG-' . str_pad((string) $stg->id, 3, '0', STR_PAD_LEFT),
-                        'order'     => $stg->order,
-                        'role'      => $stg->role,
-                        'approver'  => $stg->approver ?? '',
-                        'unitScope' => $stg->unit_scope ?? 'All units',
-                        'threshold' => (float) $stg->threshold,
-                        'required'  => (bool) $stg->required,
+                        'id'           => 'STG-' . str_pad((string) $stg->id, 3, '0', STR_PAD_LEFT),
+                        'order'        => $stg->order,
+                        'stageLevel'   => (int) ($stg->stage_level ?? 1),
+                        'stageName'    => $stg->stage_name ?? ('Tahap ' . ($stg->stage_level ?? 1)),
+                        'isSequential' => (bool) $stg->is_sequential,
+                        'subOrder'     => (int) ($stg->sub_order ?? 1),
+                        'role'         => $stg->role,
+                        'approver'     => $stg->approver ?? '',
+                        'unitScope'    => $stg->unit_scope ?? 'All units',
+                        'threshold'    => (float) $stg->threshold,
+                        'required'     => (bool) $stg->required,
                     ];
                 }),
                 'updatedAt' => $wfl->updated_at ? $wfl->updated_at->format('d M Y, H:i') : 'Just now',
@@ -46,11 +52,12 @@ class ApprovalWorkflowController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'module'  => 'required|string',
-            'process' => 'required|string',
-            'mode'    => 'required|string|in:Single,Layered',
-            'status'  => 'nullable|string|in:Active,Draft',
-            'stages'  => 'required|array|min:1',
+            'module'       => 'required|string',
+            'process'      => 'required|string',
+            'workflowType' => 'nullable|string',
+            'mode'         => 'required|string|in:Single,Layered',
+            'status'       => 'nullable|string|in:Active,Draft',
+            'stages'       => 'required|array|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -69,23 +76,29 @@ class ApprovalWorkflowController extends Controller
 
         $workflow = DB::transaction(function () use ($id, $validated, $request) {
             $wfl = ApprovalWorkflow::create([
-                'id'      => $id,
-                'module'  => $validated['module'],
-                'process' => $validated['process'],
-                'mode'    => $validated['mode'],
-                'status'  => $validated['status'] ?? 'Active',
+                'id'            => $id,
+                'module'        => $validated['module'],
+                'process'       => $validated['process'],
+                'workflow_type' => $request->input('workflowType', $request->input('workflow_type', 'submission')),
+                'mode'          => $validated['mode'],
+                'status'        => $validated['status'] ?? 'Active',
+                'is_customized' => true,
             ]);
 
             $stages = $request->input('stages', []);
             foreach ($stages as $index => $stg) {
                 ApprovalWorkflowStage::create([
-                    'workflow_id' => $wfl->id,
-                    'order'       => $index + 1,
-                    'role'        => $stg['role'] ?? 'User',
-                    'approver'    => !empty($stg['approver']) ? $stg['approver'] : null,
-                    'unit_scope'  => $stg['unitScope'] ?? $stg['unit_scope'] ?? 'All units',
-                    'threshold'   => (float) ($stg['threshold'] ?? 0),
-                    'required'    => isset($stg['required']) ? (bool) $stg['required'] : true,
+                    'workflow_id'   => $wfl->id,
+                    'order'         => $index + 1,
+                    'stage_level'   => (int) ($stg['stageLevel'] ?? $stg['stage_level'] ?? ($index + 1)),
+                    'stage_name'    => $stg['stageName'] ?? $stg['stage_name'] ?? ('Tahap ' . ($stg['stageLevel'] ?? $stg['stage_level'] ?? ($index + 1))),
+                    'is_sequential' => isset($stg['isSequential']) ? (bool)$stg['isSequential'] : (isset($stg['is_sequential']) ? (bool)$stg['is_sequential'] : false),
+                    'sub_order'     => (int) ($stg['subOrder'] ?? $stg['sub_order'] ?? 1),
+                    'role'          => $stg['role'] ?? 'User',
+                    'approver'      => !empty($stg['approver']) ? $stg['approver'] : null,
+                    'unit_scope'    => $stg['unitScope'] ?? $stg['unit_scope'] ?? 'All units',
+                    'threshold'     => (float) ($stg['threshold'] ?? 0),
+                    'required'      => isset($stg['required']) ? (bool) $stg['required'] : true,
                 ]);
             }
 
@@ -108,11 +121,12 @@ class ApprovalWorkflowController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'module'  => 'required|string',
-            'process' => 'required|string',
-            'mode'    => 'required|string|in:Single,Layered',
-            'status'  => 'nullable|string|in:Active,Draft',
-            'stages'  => 'required|array|min:1',
+            'module'       => 'required|string',
+            'process'      => 'required|string',
+            'workflowType' => 'nullable|string',
+            'mode'         => 'required|string|in:Single,Layered',
+            'status'       => 'nullable|string|in:Active,Draft',
+            'stages'       => 'required|array|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -123,10 +137,12 @@ class ApprovalWorkflowController extends Controller
 
         DB::transaction(function () use ($workflow, $validated, $request) {
             $workflow->update([
-                'module'  => $validated['module'],
-                'process' => $validated['process'],
-                'mode'    => $validated['mode'],
-                'status'  => $validated['status'] ?? $workflow->status,
+                'module'        => $validated['module'],
+                'process'       => $validated['process'],
+                'workflow_type' => $request->input('workflowType', $request->input('workflow_type', $workflow->workflow_type ?? 'submission')),
+                'mode'          => $validated['mode'],
+                'status'        => $validated['status'] ?? $workflow->status,
+                'is_customized' => true,
             ]);
 
             // Re-create stages
@@ -134,13 +150,17 @@ class ApprovalWorkflowController extends Controller
             $stages = $request->input('stages', []);
             foreach ($stages as $index => $stg) {
                 ApprovalWorkflowStage::create([
-                    'workflow_id' => $workflow->id,
-                    'order'       => $index + 1,
-                    'role'        => $stg['role'] ?? 'User',
-                    'approver'    => !empty($stg['approver']) ? $stg['approver'] : null,
-                    'unit_scope'  => $stg['unitScope'] ?? $stg['unit_scope'] ?? 'All units',
-                    'threshold'   => (float) ($stg['threshold'] ?? 0),
-                    'required'    => isset($stg['required']) ? (bool) $stg['required'] : true,
+                    'workflow_id'   => $workflow->id,
+                    'order'         => $index + 1,
+                    'stage_level'   => (int) ($stg['stageLevel'] ?? $stg['stage_level'] ?? ($index + 1)),
+                    'stage_name'    => $stg['stageName'] ?? $stg['stage_name'] ?? ('Tahap ' . ($stg['stageLevel'] ?? $stg['stage_level'] ?? ($index + 1))),
+                    'is_sequential' => isset($stg['isSequential']) ? (bool)$stg['isSequential'] : (isset($stg['is_sequential']) ? (bool)$stg['is_sequential'] : false),
+                    'sub_order'     => (int) ($stg['subOrder'] ?? $stg['sub_order'] ?? 1),
+                    'role'          => $stg['role'] ?? 'User',
+                    'approver'      => !empty($stg['approver']) ? $stg['approver'] : null,
+                    'unit_scope'    => $stg['unitScope'] ?? $stg['unit_scope'] ?? 'All units',
+                    'threshold'     => (float) ($stg['threshold'] ?? 0),
+                    'required'      => isset($stg['required']) ? (bool) $stg['required'] : true,
                 ]);
             }
         });
@@ -259,12 +279,17 @@ class ApprovalWorkflowController extends Controller
                 $order = 1;
                 foreach ($applicableStages as $stg) {
                     ApprovalStage::create([
-                        'approval_id' => $approval->id,
-                        'order'       => $order++,
-                        'name'        => $stg->role . ($stg->approver ? " ({$stg->approver})" : ''),
-                        'role'        => $stg->role,
-                        'approver'    => $stg->approver,
-                        'unit_scope'  => $stg->unit_scope ?? 'All units',
+                        'approval_id'   => $approval->id,
+                        'order'         => $order++,
+                        'stage_level'   => (int) ($stg->stage_level ?? 1),
+                        'stage_name'    => $stg->stage_name ?? ('Tahap ' . ($stg->stage_level ?? 1)),
+                        'is_sequential' => (bool) $stg->is_sequential,
+                        'sub_order'     => (int) ($stg->sub_order ?? 1),
+                        'name'          => $stg->role . ($stg->approver ? " ({$stg->approver})" : ''),
+                        'role'          => $stg->role,
+                        'approver'      => $stg->approver,
+                        'unit_scope'    => $stg->unit_scope ?? 'All units',
+                        'status'        => 'Waiting',
                     ]);
                 }
 
@@ -283,24 +308,171 @@ class ApprovalWorkflowController extends Controller
         }
     }
 
+    public function resetToDefault($id)
+    {
+        $workflow = ApprovalWorkflow::find($id);
+        if (!$workflow) {
+            return response()->json(['message' => 'Approval workflow tidak ditemukan'], 404);
+        }
+
+        // Jalankan seeder default untuk workflow ini
+        $defaults = $this->getDefaultStagesForWorkflow($workflow);
+
+        DB::transaction(function () use ($workflow, $defaults) {
+            $workflow->update([
+                'is_customized' => false,
+                'mode'          => 'Layered',
+                'status'        => 'Active',
+            ]);
+
+            ApprovalWorkflowStage::where('workflow_id', $workflow->id)->delete();
+            foreach ($defaults as $index => $stg) {
+                ApprovalWorkflowStage::create([
+                    'workflow_id'   => $workflow->id,
+                    'order'         => $index + 1,
+                    'stage_level'   => (int) ($stg['stage_level'] ?? ($index + 1)),
+                    'stage_name'    => $stg['stage_name'] ?? ('Tahap ' . ($stg['stage_level'] ?? ($index + 1))),
+                    'is_sequential' => (bool) ($stg['is_sequential'] ?? false),
+                    'sub_order'     => (int) ($stg['sub_order'] ?? 1),
+                    'role'          => $stg['role'],
+                    'approver'      => $stg['approver'] ?? null,
+                    'unit_scope'    => $stg['unit_scope'] ?? 'All units',
+                    'threshold'     => (float) ($stg['threshold'] ?? 0),
+                    'required'      => true,
+                ]);
+            }
+        });
+
+        $workflow->load('stages');
+        $this->syncRealtimeApprovalTimeline($workflow);
+
+        return response()->json($this->formatSingleWorkflow($workflow));
+    }
+
+    private function getDefaultStagesForWorkflow(ApprovalWorkflow $workflow): array
+    {
+        // Standar default PDF untuk operasional: BM -> Commercial -> GM
+        $isProjectOrConstruction = in_array($workflow->module, [
+            'Project Customer', 'Customer Project',
+            'Internal Construction', 'Konstruksi Internal'
+        ]);
+
+        if ($isProjectOrConstruction) {
+            return [
+                [
+                    'order'         => 1,
+                    'stage_level'   => 1,
+                    'stage_name'    => 'Tahap 1: Branch Manager',
+                    'is_sequential' => false,
+                    'sub_order'     => 1,
+                    'role'          => 'Branch Manager',
+                    'approver'      => null,
+                    'unit_scope'    => 'Same unit',
+                    'threshold'     => 0,
+                ],
+                [
+                    'order'         => 2,
+                    'stage_level'   => 2,
+                    'stage_name'    => 'Tahap 2: Commercial',
+                    'is_sequential' => false,
+                    'sub_order'     => 1,
+                    'role'          => 'Staff Commercial',
+                    'approver'      => 'Andi Sultan',
+                    'unit_scope'    => 'All units',
+                    'threshold'     => 0,
+                ],
+                [
+                    'order'         => 3,
+                    'stage_level'   => 3,
+                    'stage_name'    => 'Tahap 3: General Manager',
+                    'is_sequential' => false,
+                    'sub_order'     => 1,
+                    'role'          => 'General Manager',
+                    'approver'      => 'Lazuardhi Hilman Lathif',
+                    'unit_scope'    => 'All units',
+                    'threshold'     => 0,
+                ],
+            ];
+        }
+
+        if ($workflow->module === 'Legal Operations') {
+            return [
+                [
+                    'order'         => 1,
+                    'stage_level'   => 1,
+                    'stage_name'    => 'Tahap 1: Legal Review',
+                    'is_sequential' => false,
+                    'sub_order'     => 1,
+                    'role'          => 'Legal Officer',
+                    'approver'      => null,
+                    'unit_scope'    => 'All units',
+                    'threshold'     => 0,
+                ],
+                [
+                    'order'         => 2,
+                    'stage_level'   => 2,
+                    'stage_name'    => 'Tahap 2: Pengesahan GM',
+                    'is_sequential' => false,
+                    'sub_order'     => 1,
+                    'role'          => 'General Manager',
+                    'approver'      => 'Lazuardhi Hilman Lathif',
+                    'unit_scope'    => 'All units',
+                    'threshold'     => 0,
+                ],
+            ];
+        }
+
+        // Budgeting & Cashflow default
+        return [
+            [
+                'order'         => 1,
+                'stage_level'   => 1,
+                'stage_name'    => 'Tahap 1: Verifikasi Keuangan',
+                'is_sequential' => false,
+                'sub_order'     => 1,
+                'role'          => 'Finance Reviewer',
+                'approver'      => null,
+                'unit_scope'    => 'Same unit',
+                'threshold'     => 0,
+            ],
+            [
+                'order'         => 2,
+                'stage_level'   => 2,
+                'stage_name'    => 'Tahap 2: General Manager',
+                'is_sequential' => false,
+                'sub_order'     => 1,
+                'role'          => 'General Manager',
+                'approver'      => 'Lazuardhi Hilman Lathif',
+                'unit_scope'    => 'All units',
+                'threshold'     => 0,
+            ],
+        ];
+    }
+
     private function formatSingleWorkflow(ApprovalWorkflow $wfl): array
     {
         $wfl->load('stages');
         return [
-            'id'        => $wfl->id,
-            'module'    => $wfl->module,
-            'process'   => $wfl->process,
-            'mode'      => $wfl->mode,
-            'status'    => $wfl->status,
-            'stages'    => $wfl->stages->map(function ($stg) {
+            'id'           => $wfl->id,
+            'module'       => $wfl->module,
+            'process'      => $wfl->process,
+            'workflowType' => $wfl->workflow_type ?? 'submission',
+            'mode'         => $wfl->mode,
+            'status'       => $wfl->status,
+            'isCustomized' => (bool) $wfl->is_customized,
+            'stages'       => $wfl->stages->map(function ($stg) {
                 return [
-                    'id'        => 'STG-' . str_pad((string) $stg->id, 3, '0', STR_PAD_LEFT),
-                    'order'     => $stg->order,
-                    'role'      => $stg->role,
-                    'approver'  => $stg->approver ?? '',
-                    'unitScope' => $stg->unit_scope ?? 'All units',
-                    'threshold' => (float) $stg->threshold,
-                    'required'  => (bool) $stg->required,
+                    'id'           => 'STG-' . str_pad((string) $stg->id, 3, '0', STR_PAD_LEFT),
+                    'order'        => $stg->order,
+                    'stageLevel'   => (int) ($stg->stage_level ?? 1),
+                    'stageName'    => $stg->stage_name ?? ('Tahap ' . ($stg->stage_level ?? 1)),
+                    'isSequential' => (bool) $stg->is_sequential,
+                    'subOrder'     => (int) ($stg->sub_order ?? 1),
+                    'role'         => $stg->role,
+                    'approver'     => $stg->approver ?? '',
+                    'unitScope'    => $stg->unit_scope ?? 'All units',
+                    'threshold'    => (float) $stg->threshold,
+                    'required'     => (bool) $stg->required,
                 ];
             }),
             'updatedAt' => $wfl->updated_at ? $wfl->updated_at->format('d M Y, H:i') : 'Just now',

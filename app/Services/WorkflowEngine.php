@@ -72,18 +72,36 @@ class WorkflowEngine
             $order = 1;
             foreach ($applicable as $stg) {
                 $stagesToInsert[] = [
-                    'order'      => $order++,
-                    'name'       => $stg->role . ($stg->approver ? " ({$stg->approver})" : ''),
-                    'role'       => $stg->role,
-                    'approver'   => $stg->approver,
-                    'unit_scope' => $stg->unit_scope ?? $unit ?? 'All units',
+                    'order'         => $order++,
+                    'stage_level'   => (int) ($stg->stage_level ?? 1),
+                    'stage_name'    => $stg->stage_name ?? ('Tahap ' . ($stg->stage_level ?? 1)),
+                    'is_sequential' => (bool) ($stg->is_sequential ?? false),
+                    'sub_order'     => (int) ($stg->sub_order ?? 1),
+                    'name'          => $stg->role . ($stg->approver ? " ({$stg->approver})" : ''),
+                    'role'          => $stg->role,
+                    'approver'      => $stg->approver,
+                    'unit_scope'    => $stg->unit_scope ?? $unit ?? 'All units',
+                    'status'        => 'Waiting',
                 ];
             }
         }
 
         // If no workflow stages configured, use fallback
         if (empty($stagesToInsert) && !empty($fallbackStages)) {
-            $stagesToInsert = $fallbackStages;
+            $stagesToInsert = array_map(function ($fb, $idx) use ($unit) {
+                return [
+                    'order'         => $fb['order'] ?? ($idx + 1),
+                    'stage_level'   => (int) ($fb['stage_level'] ?? $fb['order'] ?? ($idx + 1)),
+                    'stage_name'    => $fb['stage_name'] ?? ('Tahap ' . ($fb['stage_level'] ?? $fb['order'] ?? ($idx + 1))),
+                    'is_sequential' => (bool) ($fb['is_sequential'] ?? false),
+                    'sub_order'     => (int) ($fb['sub_order'] ?? 1),
+                    'name'          => $fb['name'] ?? $fb['role'],
+                    'role'          => $fb['role'],
+                    'approver'      => $fb['approver'] ?? null,
+                    'unit_scope'    => $fb['unit_scope'] ?? $unit ?? 'All units',
+                    'status'        => 'Waiting',
+                ];
+            }, $fallbackStages, array_keys($fallbackStages));
         }
 
         // Clean any existing stages
@@ -91,12 +109,17 @@ class WorkflowEngine
 
         foreach ($stagesToInsert as $s) {
             ApprovalStage::create([
-                'approval_id' => $approvalId,
-                'order'       => $s['order'],
-                'name'        => $s['name'],
-                'role'        => $s['role'],
-                'approver'    => $s['approver'] ?? null,
-                'unit_scope'  => $s['unit_scope'] ?? $unit,
+                'approval_id'   => $approvalId,
+                'order'         => $s['order'],
+                'stage_level'   => $s['stage_level'],
+                'stage_name'    => $s['stage_name'],
+                'is_sequential' => $s['is_sequential'],
+                'sub_order'     => $s['sub_order'],
+                'name'          => $s['name'],
+                'role'          => $s['role'],
+                'approver'      => $s['approver'] ?? null,
+                'unit_scope'    => $s['unit_scope'] ?? $unit,
+                'status'        => 'Waiting',
             ]);
         }
 

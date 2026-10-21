@@ -11,6 +11,10 @@ class ApprovalWorkflowStage extends Model
     protected $fillable = [
         'workflow_id',
         'order',
+        'stage_level',
+        'stage_name',
+        'is_sequential',
+        'sub_order',
         'role',
         'approver',
         'unit_scope',
@@ -19,9 +23,12 @@ class ApprovalWorkflowStage extends Model
     ];
 
     protected $casts = [
-        'order'     => 'integer',
-        'threshold' => 'float',
-        'required'  => 'boolean',
+        'order'         => 'integer',
+        'stage_level'   => 'integer',
+        'is_sequential' => 'boolean',
+        'sub_order'     => 'integer',
+        'threshold'     => 'float',
+        'required'      => 'boolean',
     ];
 
     public function workflow()

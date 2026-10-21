@@ -14,8 +14,14 @@ class ApprovalWorkflow extends Model
         'id',
         'module',
         'process',
+        'workflow_type',
         'mode',
         'status',
+        'is_customized',
+    ];
+
+    protected $casts = [
+        'is_customized' => 'boolean',
     ];
 
     public function stages()
