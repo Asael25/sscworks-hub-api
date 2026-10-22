@@ -246,6 +246,27 @@ class ApprovalWorkflowController extends Controller
                 $query->where(function ($q) {
                     $q->where('id', 'LIKE', 'KI-%')
                       ->orWhere('id', 'LIKE', 'KSI-%');
+                })->where('id', 'NOT LIKE', 'WPR-%');
+            } elseif ($workflow->process === 'Weekly Progress') {
+                $query->where(function ($q) {
+                    $q->where('id', 'LIKE', 'WPR-%')
+                      ->orWhere('request', 'LIKE', '%Weekly Progress%')
+                      ->orWhere('request', 'LIKE', '%Laporan Mingguan%');
+                });
+            } elseif ($workflow->process === 'Budget Plan') {
+                $query->where(function ($q) {
+                    $q->where('id', 'LIKE', 'BGT-%')
+                      ->orWhere('id', 'LIKE', 'PLN-%');
+                });
+            } elseif ($workflow->process === 'Transaction Verification') {
+                $query->where(function ($q) {
+                    $q->where('id', 'LIKE', 'CF-%')
+                      ->orWhere('id', 'LIKE', 'TRX-%');
+                });
+            } elseif ($workflow->process === 'Legal Request') {
+                $query->where(function ($q) {
+                    $q->where('id', 'LIKE', 'LGL-%')
+                      ->orWhere('id', 'LIKE', 'LEG-%');
                 });
             }
 
