@@ -191,40 +191,38 @@ class ApprovalController extends Controller
         $matchedStage = null;
         $isSequential = (bool) ($currentLayerStages->first()?->is_sequential ?? false);
 
-        if ($isSuperAdmin) {
-            // Super Admin dapat mewakili approver aktif di layer ini
-            $matchedStage = $isSequential
-                ? $pendingInLayer->sortBy('sub_order')->first()
-                : $pendingInLayer->first();
-        } else {
-            // Cocokkan user login dengan approver yang pending di layer ini
-            foreach ($pendingInLayer as $stg) {
-                $isMatch = false;
-                if ($stg->approver) {
-                    $targetApprover = strtolower(trim($stg->approver));
-                    $userName = strtolower(trim($user->name ?? ''));
-                    $userUsername = strtolower(trim($user->username ?? ''));
-                    $userIdentifier = strtolower(trim($user->identifier ?? ''));
-                    $userEmailPrefix = explode('@', $userIdentifier)[0];
+        // Cocokkan user login dengan approver yang pending di layer ini sesuai alur workflow
+        foreach ($pendingInLayer as $stg) {
+            $isMatch = false;
+            if ($stg->approver) {
+                $targetApprover = strtolower(trim($stg->approver));
+                $userName = strtolower(trim($user->name ?? ''));
+                $userUsername = strtolower(trim($user->username ?? ''));
+                $userIdentifier = strtolower(trim($user->identifier ?? ''));
+                $userEmailPrefix = explode('@', $userIdentifier)[0];
 
-                    $nameWords = array_filter(preg_split('/\s+/', $userName));
-                    $targetWords = array_filter(preg_split('/\s+/', $targetApprover));
-                    $isWordMatch = false;
-                    foreach ($nameWords as $nw) {
-                        if (in_array($nw, $targetWords)) {
-                            $isWordMatch = true;
-                            break;
-                        }
+                $nameWords = array_filter(preg_split('/\s+/', $userName));
+                $targetWords = array_filter(preg_split('/\s+/', $targetApprover));
+                $isWordMatch = false;
+                foreach ($nameWords as $nw) {
+                    if (in_array($nw, $targetWords)) {
+                        $isWordMatch = true;
+                        break;
                     }
+                }
 
-                    $isMatch = ($userName === $targetApprover)
-                        || str_contains($userName, $targetApprover)
-                        || str_contains($targetApprover, $userName)
-                        || $isWordMatch
-                        || ($userUsername === $targetApprover)
-                        || ($userIdentifier === $targetApprover)
-                        || ($userEmailPrefix === $targetApprover);
-                } elseif ($stg->role === $user->role) {
+                $isMatch = ($userName === $targetApprover)
+                    || str_contains($userName, $targetApprover)
+                    || str_contains($targetApprover, $userName)
+                    || $isWordMatch
+                    || ($userUsername === $targetApprover)
+                    || ($userIdentifier === $targetApprover)
+                    || ($userEmailPrefix === $targetApprover);
+            } elseif ($stg->role && $user) {
+                $targetRole = strtolower(trim($stg->role));
+                $userRole = strtolower(trim($user->role ?? ''));
+
+                if ($targetRole === $userRole) {
                     $scope = $stg->unit_scope ?? 'All units';
                     $userUnits = array_filter(array_merge(
                         [$user->primary_unit],
@@ -242,29 +240,30 @@ class ApprovalController extends Controller
                         $isMatch = true;
                     }
                 }
-
-                if ($isMatch) {
-                    // Jika sequential, pastikan sub_order sebelumnya sudah disetujui
-                    if ($isSequential) {
-                        $earlierPending = $pendingInLayer->first(fn($p) => (int)$p->sub_order < (int)$stg->sub_order);
-                        if ($earlierPending) {
-                            return response()->json([
-                                'message' => "Tahap ini wajib berurutan. Harap menunggu persetujuan dari {$earlierPending->name} terlebih dahulu."
-                            ], 422);
-                        }
-                    }
-                    $matchedStage = $stg;
-                    break;
-                }
             }
 
-            if (!$matchedStage) {
-                $requiredNames = $pendingInLayer->pluck('name')->implode(', ');
-                return response()->json([
-                    'message' => "Anda tidak memiliki hak approval pada tahap aktif saat ini ({$requiredNames})."
-                ], 422);
+            if ($isMatch) {
+                // Jika sequential, pastikan sub_order sebelumnya sudah disetujui
+                if ($isSequential) {
+                    $earlierPending = $pendingInLayer->first(fn($p) => (int)$p->sub_order < (int)$stg->sub_order);
+                    if ($earlierPending) {
+                        return response()->json([
+                            'message' => 'Tahap ini bersifat sekuensial. Harap tunggu persetujuan dari ' . ($earlierPending->approver ?: $earlierPending->role) . ' terlebih dahulu.'
+                        ], 422);
+                    }
+                }
+                $matchedStage = $stg;
+                break;
             }
         }
+
+        if (!$matchedStage) {
+            $expected = $pendingInLayer->first()?->approver ?: ($pendingInLayer->first()?->role ?: 'pejabat berwenang');
+            return response()->json([
+                'message' => "Tahap persetujuan ini memerlukan otorisasi [{$expected}] sesuai alur workflow dan tidak dapat diproses oleh akun Anda."
+            ], 403);
+        }
+
 
         // Jika fallback matchedStage masih kosong
         if (!$matchedStage) {

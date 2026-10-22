@@ -530,6 +530,11 @@ class ConstructionController extends Controller
         ]);
 
         $work = ConstructionWork::find($validated['workId']);
+        if ($work && in_array($work->status, ['Waiting Approval', 'Draft'])) {
+            return response()->json([
+                'error' => 'Pekerjaan belum disetujui untuk beroperasi (Status saat ini: ' . $work->status . '). Laporan mingguan hanya dapat diinput untuk pekerjaan yang sudah disetujui/beroperasi.'
+            ], 422);
+        }
         $workName = !empty($validated['workName']) ? $validated['workName'] : ($work ? $work->name : 'Pekerjaan Konstruksi');
         $unit = !empty($validated['unit']) ? $validated['unit'] : ($work ? $work->unit : 'SSC Surabaya');
         $pic = !empty($validated['pic']) ? $validated['pic'] : ($work ? $work->pic : 'Pengawas Lapangan');
