@@ -81,6 +81,25 @@ class ApprovalController extends Controller
         ];
     }
 
+    private function isSameUnit(?string $itemUnit, ?string $userUnit): bool
+    {
+        if (!$itemUnit || !$userUnit) return false;
+        if (trim($itemUnit) === trim($userUnit)) return true;
+
+        $cleanItem = strtolower(trim(str_replace(['SSC', 'Works', 'Cabang', '—', '-'], ' ', $itemUnit)));
+        $cleanUser = strtolower(trim(str_replace(['SSC', 'Works', 'Cabang', '—', '-'], ' ', $userUnit)));
+
+        $cleanItem = preg_replace('/\s+/', ' ', $cleanItem);
+        $cleanUser = preg_replace('/\s+/', ' ', $cleanUser);
+
+        if (!empty($cleanItem) && !empty($cleanUser)) {
+            if ($cleanItem === $cleanUser) return true;
+            if (str_contains($cleanItem, $cleanUser) || str_contains($cleanUser, $cleanItem)) return true;
+        }
+
+        return false;
+    }
+
     public function index(Request $request)
     {
         $query = Approval::with(['stages', 'attachments', 'history'])
@@ -228,18 +247,15 @@ class ApprovalController extends Controller
 
                 if ($isRoleMatch) {
                     $scope = $stg->unit_scope ?? 'All units';
-                    $userUnits = array_filter(array_merge(
-                        [$user->primary_unit],
-                        is_array($user->additional_units) ? $user->additional_units : (json_decode($user->additional_units ?? '[]', true) ?: [])
-                    ));
-                    $isAllUnitUser = in_array('*', $userUnits) || in_array($user->role, ['Super Admin', 'Admin Super']);
+                    $userPrimaryUnit = $user->primary_unit ?? '';
 
-                    if ($isAllUnitUser || $scope === 'All units') {
+                    if ($scope === 'All units') {
                         $isMatch = true;
                     } elseif ($scope === 'Same unit') {
-                        $isMatch = in_array($approval->unit, $userUnits);
-                    } elseif ($scope === 'Head Office') {
-                        $isMatch = in_array('Head Office', $userUnits);
+                        // Same unit WAJIB memverifikasi kesamaan unit pengajuan dengan primary_unit pejabat penanggung jawab
+                        $isMatch = $this->isSameUnit($approval->unit, $userPrimaryUnit);
+                    } elseif ($scope === 'Head Office' || $scope === 'Head Office only') {
+                        $isMatch = str_contains(strtolower($userPrimaryUnit), 'head office');
                     } else {
                         $isMatch = true;
                     }
