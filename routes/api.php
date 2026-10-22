@@ -204,12 +204,17 @@ Route::post('/system-settings/data/archive', function (\Illuminate\Http\Request 
     $archivedDocs = [];
 
     try {
-        $query = \App\Models\Document::where('status', '!=', 'Archived')
-            ->whereNotIn('category', ['Cashflow', 'Budgeting'])
-            ->where(function ($qSub) use ($opsCutoffDate, $opsCutoffTime) {
-                $qSub->where('uploaded_date', '<=', $opsCutoffDate)
-                     ->orWhere('created_at', '<=', $opsCutoffTime);
-            });
+        if ($request->has('ids') && is_array($request->input('ids')) && count($request->input('ids')) > 0) {
+            $query = \App\Models\Document::where('status', '!=', 'Archived')
+                ->whereIn('id', $request->input('ids'));
+        } else {
+            $query = \App\Models\Document::where('status', '!=', 'Archived')
+                ->whereNotIn('category', ['Cashflow', 'Budgeting'])
+                ->where(function ($qSub) use ($opsCutoffDate, $opsCutoffTime) {
+                    $qSub->where('uploaded_date', '<=', $opsCutoffDate)
+                         ->orWhere('created_at', '<=', $opsCutoffTime);
+                });
+        }
 
         $count = $query->count();
         $archivedDocs = $query->get(['id', 'file_name'])->toArray();
@@ -226,8 +231,9 @@ Route::post('/system-settings/data/archive', function (\Illuminate\Http\Request 
 
 Route::post('/system-settings/data/reset', function () {
     try {
+        $defaultArchived = ['DOC-2018-00021', 'DOC-2019-00088', 'DOC-2020-00142', 'DOC-2021-00198', 'DOC-2021-00210'];
         \App\Models\Document::where('status', 'Archived')
-            ->where('id', '!=', 'DOC-2018-00021')
+            ->whereNotIn('id', $defaultArchived)
             ->update(['status' => 'Active']);
     } catch (\Throwable $e) {}
 
