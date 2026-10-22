@@ -222,7 +222,11 @@ class ApprovalController extends Controller
                 $targetRole = strtolower(trim($stg->role));
                 $userRole = strtolower(trim($user->role ?? ''));
 
-                if ($targetRole === $userRole) {
+                $isRoleMatch = ($targetRole === $userRole)
+                    || ($targetRole === 'branch manager' && in_array($userRole, ['branch manager', 'kepala cabang', 'manajer proyek']))
+                    || ($targetRole === 'general manager' && in_array($userRole, ['general manager', 'gm']));
+
+                if ($isRoleMatch) {
                     $scope = $stg->unit_scope ?? 'All units';
                     $userUnits = array_filter(array_merge(
                         [$user->primary_unit],
