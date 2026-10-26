@@ -248,7 +248,15 @@ class CustomerProjectController extends Controller
         $seq  = str_pad((string) rand(1, 99999), 5, '0', STR_PAD_LEFT);
         $projectId = "CPR-{$year}-{$seq}";
 
-        $customer = !empty($validated['customer']) ? $validated['customer'] : 'Customer (Draft)';
+        $rawCustomer = !empty($validated['customer']) ? trim($validated['customer']) : '';
+        if ($rawCustomer !== '') {
+            $existingCustomer = CustomerProject::whereRaw('LOWER(customer) = ?', [strtolower($rawCustomer)])
+                ->where('customer', '!=', 'Customer (Draft)')
+                ->value('customer');
+            $customer = $existingCustomer ?: $rawCustomer;
+        } else {
+            $customer = 'Customer (Draft)';
+        }
         $name = !empty($validated['name']) ? $validated['name'] : 'Draft Customer Project (' . date('d/m/Y H:i') . ')';
         $unit = !empty($validated['unit']) ? $validated['unit'] : 'Project Samarinda';
         $location = !empty($validated['location']) ? $validated['location'] : 'Lokasi Draft';
@@ -424,7 +432,15 @@ class CustomerProjectController extends Controller
 
         $status = $isDraft ? 'Draft' : 'Waiting Approval';
 
-        $customer = !empty($validated['customer']) ? $validated['customer'] : $project->customer;
+        $rawCustomer = !empty($validated['customer']) ? trim($validated['customer']) : '';
+        if ($rawCustomer !== '') {
+            $existingCustomer = CustomerProject::whereRaw('LOWER(customer) = ?', [strtolower($rawCustomer)])
+                ->where('customer', '!=', 'Customer (Draft)')
+                ->value('customer');
+            $customer = $existingCustomer ?: $rawCustomer;
+        } else {
+            $customer = $project->customer;
+        }
         $name = !empty($validated['name']) ? $validated['name'] : $project->name;
         $unit = !empty($validated['unit']) ? $validated['unit'] : $project->unit;
         $location = !empty($validated['location']) ? $validated['location'] : $project->location;
