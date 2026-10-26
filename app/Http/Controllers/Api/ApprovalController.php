@@ -505,13 +505,43 @@ class ApprovalController extends Controller
                         ]);
                     }
 
+                    $recalculatedProgress = isset($rev['recalculatedProgress']) ? (float)$rev['recalculatedProgress'] : null;
+                    $revScopes = $rev['scopes'] ?? [];
+
                     if ($itemType === 'construction' || in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
                         $work = \App\Models\ConstructionWork::find($targetId);
                         if ($work) {
                             $updatePayload = [];
                             if ($revAmount > 0) $updatePayload['budget'] = $revAmount;
                             if ($revTargetDate) $updatePayload['target_date'] = $revTargetDate;
+                            if ($recalculatedProgress !== null) $updatePayload['actual'] = $recalculatedProgress;
                             $work->update($updatePayload);
+
+                            // Sinkronisasi data scopes proyek konstruksi sesuai hasil Metode B
+                            if (!empty($revScopes) && is_array($revScopes)) {
+                                foreach ($revScopes as $sc) {
+                                    $cType = $sc['changeType'] ?? 'unchanged';
+                                    $scName = $sc['scope'] ?? '';
+                                    if (empty($scName)) continue;
+
+                                    if ($cType === 'removed') {
+                                        \App\Models\ConstructionScope::where('work_id', $work->id)->where('scope', $scName)->delete();
+                                    } else {
+                                        \App\Models\ConstructionScope::updateOrCreate(
+                                            [
+                                                'work_id' => $work->id,
+                                                'scope'   => $scName,
+                                            ],
+                                            [
+                                                'quantity'        => $sc['quantity'] ?? '1',
+                                                'unit_of_measure' => $sc['unitOfMeasure'] ?? 'ls',
+                                                'weight'          => (float)($sc['revisedWeight'] ?? ($sc['weight'] ?? 0)),
+                                                'actual'          => (float)($sc['revisedActual'] ?? ($sc['actual'] ?? 0)),
+                                            ]
+                                        );
+                                    }
+                                }
+                            }
                         }
                     } elseif ($itemType === 'customer-project' || in_array($approval->module, ['Customer Project', 'Project Customer'])) {
                         $project = \App\Models\CustomerProject::find($targetId);
@@ -519,7 +549,32 @@ class ApprovalController extends Controller
                             $updatePayload = [];
                             if ($revAmount > 0) $updatePayload['contract_value'] = $revAmount;
                             if ($revTargetDate) $updatePayload['deadline'] = $revTargetDate;
+                            if ($recalculatedProgress !== null) $updatePayload['actual'] = $recalculatedProgress;
                             $project->update($updatePayload);
+
+                            // Sinkronisasi data scopes proyek customer sesuai hasil Metode B
+                            if (!empty($revScopes) && is_array($revScopes)) {
+                                foreach ($revScopes as $sc) {
+                                    $cType = $sc['changeType'] ?? 'unchanged';
+                                    $scName = $sc['scope'] ?? '';
+                                    if (empty($scName)) continue;
+
+                                    if ($cType === 'removed') {
+                                        \App\Models\CustomerProjectScope::where('project_id', $project->id)->where('scope', $scName)->delete();
+                                    } else {
+                                        \App\Models\CustomerProjectScope::updateOrCreate(
+                                            [
+                                                'project_id' => $project->id,
+                                                'scope'      => $scName,
+                                            ],
+                                            [
+                                                'weight' => (float)($sc['revisedWeight'] ?? ($sc['weight'] ?? 0)),
+                                                'actual' => (float)($sc['revisedActual'] ?? ($sc['actual'] ?? 0)),
+                                            ]
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -700,20 +755,39 @@ class ApprovalController extends Controller
     public function requestRevision(Request $request)
     {
         $validated = $request->validate([
-            'module'             => 'required|string',
-            'itemType'           => 'required|string|in:construction,customer-project',
-            'itemId'             => 'required|string',
-            'itemName'           => 'required|string',
-            'unit'               => 'nullable|string',
-            'submittedBy'        => 'nullable|string',
-            'previousAmount'     => 'required|numeric',
-            'revisedAmount'      => 'required|numeric',
-            'previousTargetDate' => 'nullable|string',
-            'revisedTargetDate'  => 'nullable|string',
-            'reason'             => 'required|string|min:5',
-            'documentName'       => 'nullable|string',
-            'documentUrl'        => 'nullable|string',
+            'module'                 => 'required|string',
+            'itemType'               => 'required|string|in:construction,customer-project',
+            'itemId'                 => 'required|string',
+            'itemName'               => 'required|string',
+            'unit'                   => 'nullable|string',
+            'submittedBy'            => 'nullable|string',
+            'previousAmount'         => 'required|numeric',
+            'revisedAmount'          => 'required|numeric',
+            'previousTargetDate'     => 'nullable|string',
+            'revisedTargetDate'      => 'nullable|string',
+            'reason'                 => 'required|string|min:5',
+            'documentName'           => 'nullable|string',
+            'documentUrl'            => 'nullable|string',
+            'previousActualProgress' => 'nullable|numeric',
+            'recalculatedProgress'   => 'nullable|numeric',
+            'scopes'                 => 'nullable|array',
         ]);
+
+        if ($validated['itemType'] === 'construction') {
+            $work = \App\Models\ConstructionWork::find($validated['itemId']);
+            if ($work && !in_array($work->status, ['On Schedule', 'Delayed'])) {
+                return response()->json([
+                    'message' => 'Revisi kontrak hanya dapat diajukan untuk pekerjaan yang sedang berjalan (Status: On Schedule atau Delayed). Status saat ini: ' . $work->status,
+                ], 422);
+            }
+        } elseif ($validated['itemType'] === 'customer-project') {
+            $proj = \App\Models\CustomerProject::find($validated['itemId']);
+            if ($proj && !in_array($proj->status, ['On Schedule', 'Delayed'])) {
+                return response()->json([
+                    'message' => 'Revisi kontrak hanya dapat diajukan untuk project customer yang sedang berjalan (Status: On Schedule atau Delayed). Status saat ini: ' . $proj->status,
+                ], 422);
+            }
+        }
 
         $revId = 'REV-' . date('Ymd') . '-' . substr(strtoupper(uniqid()), -4);
         $addendumId = 'ADD-' . date('Ymd') . '-' . substr(strtoupper(uniqid()), -4);
@@ -728,24 +802,28 @@ class ApprovalController extends Controller
             'isContractRevision' => true,
             'targetItemId'       => $validated['itemId'],
             'contractRevision'   => [
-                'addendumId'         => $addendumId,
-                'addendumNumber'     => $addendumNumber,
-                'itemType'           => $validated['itemType'],
-                'itemId'             => $validated['itemId'],
-                'itemName'           => $validated['itemName'],
-                'previousAmount'     => (float) $validated['previousAmount'],
-                'revisedAmount'      => (float) $validated['revisedAmount'],
-                'previousTargetDate' => $validated['previousTargetDate'] ?? '',
-                'revisedTargetDate'  => $validated['revisedTargetDate'] ?? '',
-                'reason'             => $validated['reason'],
-                'documentName'       => $validated['documentName'] ?? null,
-                'documentUrl'        => $validated['documentUrl'] ?? null,
+                'addendumId'             => $addendumId,
+                'addendumNumber'         => $addendumNumber,
+                'itemType'               => $validated['itemType'],
+                'itemId'                 => $validated['itemId'],
+                'itemName'               => $validated['itemName'],
+                'previousAmount'         => (float) $validated['previousAmount'],
+                'revisedAmount'          => (float) $validated['revisedAmount'],
+                'previousTargetDate'     => $validated['previousTargetDate'] ?? '',
+                'revisedTargetDate'      => $validated['revisedTargetDate'] ?? '',
+                'reason'                 => $validated['reason'],
+                'documentName'           => $validated['documentName'] ?? null,
+                'documentUrl'            => $validated['documentUrl'] ?? null,
+                'previousActualProgress' => isset($validated['previousActualProgress']) ? (float)$validated['previousActualProgress'] : null,
+                'recalculatedProgress'   => isset($validated['recalculatedProgress']) ? (float)$validated['recalculatedProgress'] : null,
+                'scopes'                 => $validated['scopes'] ?? [],
             ],
         ]);
 
         $diff = (float)$validated['revisedAmount'] - (float)$validated['previousAmount'];
         $diffStr = ($diff >= 0 ? '+' : '-') . 'Rp ' . number_format(abs($diff), 0, ',', '.');
-        $summary = "Addendum #{$addendumNumber}: Penyesuaian Nilai Rp " . number_format($validated['previousAmount'], 0, ',', '.') . " ➔ Rp " . number_format($validated['revisedAmount'], 0, ',', '.') . " ({$diffStr})" . ($validated['revisedTargetDate'] ? ", Target: {$validated['revisedTargetDate']}" : "");
+        $progStr = isset($validated['recalculatedProgress']) ? (", AP: " . ($validated['previousActualProgress'] ?? 0) . "% ➔ " . $validated['recalculatedProgress'] . "%") : "";
+        $summary = "Addendum #{$addendumNumber}: Penyesuaian Nilai Rp " . number_format($validated['previousAmount'], 0, ',', '.') . " ➔ Rp " . number_format($validated['revisedAmount'], 0, ',', '.') . " ({$diffStr})" . ($validated['revisedTargetDate'] ? ", Target: {$validated['revisedTargetDate']}" : "") . $progStr;
 
         // Cek apakah dokumen induk memiliki alur persetujuan (stages) aktif
         $parentApproval = Approval::with('stages')->find($validated['itemId']);
