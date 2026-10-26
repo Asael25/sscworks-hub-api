@@ -60,8 +60,13 @@ class ConstructionController extends Controller
         }
 
         $works = $query->get();
+        $approvalMap = Approval::whereIn('id', $works->pluck('id'))->get()->keyBy('id');
 
-        $formatted = $works->map(function ($item) {
+        $formatted = $works->map(function ($item) use ($approvalMap) {
+            $app = $approvalMap->get($item->id);
+            $subId = $item->submitted_by_id ?? ($app ? $app->submitted_by_id : null);
+            $subBy = $item->submitted_by ?? ($app ? $app->submitted_by : null);
+
             return [
                 'id' => $item->id,
                 'name' => $item->name,
@@ -70,6 +75,8 @@ class ConstructionController extends Controller
                 'vendor' => $item->vendor,
                 'contractNumber' => $item->contract_number,
                 'pic' => $item->pic,
+                'submittedById' => $subId,
+                'submittedBy' => $subBy,
                 'startDate' => $item->start_date,
                 'targetDate' => $item->target_date,
                 'period' => $item->period,
@@ -229,6 +236,16 @@ class ConstructionController extends Controller
         $targetDate = !empty($validated['targetDate']) ? $validated['targetDate'] : date('Y-m-d', strtotime('+30 days'));
         $status = $isDraft ? 'Draft' : 'Waiting Approval';
 
+        $identifier = $request->header('X-User-Identifier');
+        $submitterUser = null;
+        if ($identifier) {
+            $submitterUser = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                ->first();
+        }
+        $submitterName = $submitterUser ? ($submitterUser->name ?: $submitterUser->username) : $pic;
+        $submitterId = $submitterUser ? $submitterUser->identifier : ($identifier ?: strtolower(str_replace(' ', '', $pic)));
+
         $work = ConstructionWork::create([
             'id'              => $workId,
             'name'            => $name,
@@ -237,6 +254,8 @@ class ConstructionController extends Controller
             'vendor'          => $vendor,
             'contract_number' => $contractNumber,
             'pic'             => $pic,
+            'submitted_by'    => $submitterName,
+            'submitted_by_id' => $submitterId,
             'start_date'      => $startDate,
             'target_date'     => $targetDate,
             'period'          => date('M Y'),
@@ -283,16 +302,6 @@ class ConstructionController extends Controller
         }
 
         if (!$isDraft) {
-            $identifier = $request->header('X-User-Identifier');
-            $submitterUser = null;
-            if ($identifier) {
-                $submitterUser = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
-                    ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
-                    ->first();
-            }
-            $submitterName = $submitterUser ? ($submitterUser->name ?: $submitterUser->username) : $pic;
-            $submitterId = $submitterUser ? $submitterUser->identifier : ($identifier ?: strtolower(str_replace(' ', '', $pic)));
-
             // ─── Auto-create global Approval Center record ───────────────────
             $approvalId = $workId;
 
@@ -535,6 +544,51 @@ class ConstructionController extends Controller
                 'error' => 'Pekerjaan belum disetujui untuk beroperasi (Status saat ini: ' . $work->status . '). Laporan mingguan hanya dapat diinput untuk pekerjaan yang sudah disetujui/beroperasi.'
             ], 422);
         }
+
+        // Validasi Otorisasi: Hanya PIC atau Submitter yang berhak menginput progress mingguan (kecuali peran manajerial)
+        $identifier = $request->header('X-User-Identifier');
+        if ($identifier && $work) {
+            $user = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                ->first();
+            if ($user) {
+                $role = strtolower(trim($user->role ?? ''));
+                $isManagerOrAdmin = in_array($role, [
+                    'super admin', 'admin super', 'branch manager', 'general manager', 
+                    'manajer proyek', 'project manager', 'kepala cabang', 'unit head', 'direktur'
+                ]);
+
+                if (strtolower($user->identifier) === 'rudi@sscworks.com' || str_contains($role, 'it') || str_contains($role, 'support')) {
+                    $isManagerOrAdmin = false;
+                }
+
+                if (!$isManagerOrAdmin) {
+                    $userName = strtolower(trim($user->name ?: $user->username));
+                    $userEmail = strtolower(trim($user->identifier));
+                    $emailPrefix = explode('@', $userEmail)[0] ?? '';
+                    $workPic = strtolower(trim($work->pic ?? ''));
+                    
+                    $app = Approval::find($work->id);
+                    $subId = strtolower(trim($work->submitted_by_id ?? ($app ? $app->submitted_by_id : '')));
+                    $subBy = strtolower(trim($work->submitted_by ?? ($app ? $app->submitted_by : '')));
+
+                    $isPic = ($workPic === $userName)
+                        || ($workPic === $userEmail)
+                        || (!empty($emailPrefix) && ($workPic === $emailPrefix || str_contains($workPic, $emailPrefix)))
+                        || (!empty($userName) && (str_contains($workPic, $userName) || str_contains($userName, $workPic)));
+
+                    $isSubmitter = (!empty($subId) && ($subId === $userEmail || $subId === (string)$user->id || $subId === $emailPrefix))
+                        || (!empty($subBy) && ($subBy === $userName || str_contains($subBy, $userName) || str_contains($userName, $subBy)));
+
+                    if (!$isPic && !$isSubmitter) {
+                        return response()->json([
+                            'error' => 'Anda tidak memiliki wewenang untuk menginput laporan pada pekerjaan ini. Laporan mingguan hanya dapat diajukan oleh PIC yang ditugaskan (' . $work->pic . ') atau pengguna dengan peran manajerial.'
+                        ], 403);
+                    }
+                }
+            }
+        }
+
         $workName = !empty($validated['workName']) ? $validated['workName'] : ($work ? $work->name : 'Pekerjaan Konstruksi');
         $unit = !empty($validated['unit']) ? $validated['unit'] : ($work ? $work->unit : 'SSC Surabaya');
         $pic = !empty($validated['pic']) ? $validated['pic'] : ($work ? $work->pic : 'Pengawas Lapangan');

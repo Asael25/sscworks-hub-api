@@ -15,7 +15,7 @@ class ConstructionWork extends Model
 
     protected $fillable = [
         'id', 'name', 'unit', 'location', 'vendor', 'contract_number',
-        'pic', 'start_date', 'target_date', 'period', 'target', 'actual',
+        'pic', 'submitted_by', 'submitted_by_id', 'start_date', 'target_date', 'period', 'target', 'actual',
         'status', 'budget', 'notes', 'quality_checked', 'quality_passed',
         'quality_reworks', 'quality_note', 'safety_manhours',
         'safety_incidents', 'safety_near_miss', 'safety_toolbox'

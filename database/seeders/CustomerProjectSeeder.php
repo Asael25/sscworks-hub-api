@@ -206,6 +206,40 @@ class CustomerProjectSeeder extends Seeder
                     ['stage' => 'General Manager', 'approver' => 'Lazuardhi Hilman Lathif', 'date' => '2026-07-31', 'state' => 'Approved'],
                 ],
             ],
+            [
+                'id' => 'CPR-2026-00106',
+                'customer' => 'PT Mitra Konstruksi Mandiri',
+                'name' => 'Pengadaan & Pemasangan Jaringan Site Margomulyo',
+                'contract_number' => 'CTR-2026-00160',
+                'po_number' => 'PO-MK-2026-0422',
+                'unit' => 'Head Office',
+                'location' => 'Kawasan Industri Margomulyo, Surabaya',
+                'contract_value' => 1250000000,
+                'target' => 70,
+                'actual' => 68,
+                'deadline' => '2026-11-15',
+                'start_date' => '2026-06-01',
+                'period' => '2026-Q3',
+                'status' => 'On Schedule',
+                'pic' => 'Fachrudi Putra Pamuji',
+                'payment_term' => 'Termin 30/40/30',
+                'retention' => '5% ditahan 3 bulan',
+                'scopes' => [
+                    ['scope' => 'Penarikan Kabel & Rak Jaringan', 'weight' => 40, 'target' => 100, 'actual' => 95],
+                    ['scope' => 'Instalasi Perangkat Jaringan & AP', 'weight' => 35, 'target' => 80, 'actual' => 75],
+                    ['scope' => 'Testing & Commissioning', 'weight' => 25, 'target' => 40, 'actual' => 35],
+                ],
+                'weekly' => [
+                    ['period' => 'W-32', 'target' => 50, 'actual' => 48, 'note' => 'Pemasangan rak server selesai', 'reported_by' => 'Fachrudi Putra Pamuji'],
+                    ['period' => 'W-33', 'target' => 60, 'actual' => 58, 'note' => 'Penarikan jalur utama selesai', 'reported_by' => 'Fachrudi Putra Pamuji'],
+                    ['period' => 'W-34', 'target' => 70, 'actual' => 68, 'note' => 'Uji performa bandwidth awal', 'reported_by' => 'Fachrudi Putra Pamuji'],
+                ],
+                'issues' => [],
+                'photos' => [
+                    ['caption' => 'Rack network site Margomulyo', 'date' => '2026-08-20'],
+                ],
+                'approvals' => $approvals('Approved'),
+            ],
         ];
 
         foreach ($projects as $item) {

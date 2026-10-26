@@ -16,7 +16,7 @@ class CustomerProject extends Model
     protected $fillable = [
         'id', 'customer', 'name', 'contract_number', 'po_number', 'unit',
         'location', 'contract_value', 'target', 'actual', 'deadline',
-        'start_date', 'period', 'status', 'pic', 'payment_term', 'retention', 'notes'
+        'start_date', 'period', 'status', 'pic', 'submitted_by', 'submitted_by_id', 'payment_term', 'retention', 'notes'
     ];
 
     public function scopes()

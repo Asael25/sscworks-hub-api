@@ -59,8 +59,13 @@ class CustomerProjectController extends Controller
         }
 
         $projects = $query->get();
+        $approvalMap = Approval::whereIn('id', $projects->pluck('id'))->get()->keyBy('id');
 
-        $formatted = $projects->map(function ($item) {
+        $formatted = $projects->map(function ($item) use ($approvalMap) {
+            $app = $approvalMap->get($item->id);
+            $subId = $item->submitted_by_id ?? ($app ? $app->submitted_by_id : null);
+            $subBy = $item->submitted_by ?? ($app ? $app->submitted_by : null);
+
             return [
                 'id' => $item->id,
                 'customer' => $item->customer,
@@ -77,6 +82,8 @@ class CustomerProjectController extends Controller
                 'period' => $item->period,
                 'status' => $item->status,
                 'pic' => $item->pic,
+                'submittedById' => $subId,
+                'submittedBy' => $subBy,
                 'paymentTerm' => $item->payment_term,
                 'retention' => $item->retention,
                 'notes' => $item->notes ?? '',
@@ -253,25 +260,37 @@ class CustomerProjectController extends Controller
         $target = isset($validated['target']) ? (float) $validated['target'] : 0;
         $status = $isDraft ? 'Draft' : 'Waiting Approval';
 
+        $identifier = $request->header('X-User-Identifier');
+        $submitterUser = null;
+        if ($identifier) {
+            $submitterUser = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                ->first();
+        }
+        $submitterName = $submitterUser ? ($submitterUser->name ?: $submitterUser->username) : $pic;
+        $submitterId = $submitterUser ? $submitterUser->identifier : ($identifier ?: strtolower(str_replace(' ', '', $pic)));
+
         $project = CustomerProject::create([
-            'id'             => $projectId,
-            'customer'       => $customer,
-            'name'           => $name,
-            'contract_number'=> $contractNumber,
-            'po_number'      => $poNumber,
-            'unit'           => $unit,
-            'location'       => $location,
-            'contract_value' => $validated['contractValue'] ?? 0,
-            'target'         => $target,
-            'actual'         => 0,
-            'deadline'       => $deadline,
-            'start_date'     => $startDate,
-            'period'         => date('M Y'),
-            'status'         => $status,
-            'pic'            => $pic,
-            'payment_term'   => $validated['paymentTerm'] ?? '-',
-            'retention'      => $validated['retention'] ?? '-',
-            'notes'          => $validated['notes'] ?? null,
+            'id'              => $projectId,
+            'customer'        => $customer,
+            'name'            => $name,
+            'contract_number' => $contractNumber,
+            'po_number'       => $poNumber,
+            'unit'            => $unit,
+            'location'        => $location,
+            'contract_value'  => $validated['contractValue'] ?? 0,
+            'target'          => $target,
+            'actual'          => 0,
+            'deadline'        => $deadline,
+            'start_date'      => $startDate,
+            'period'          => date('M Y'),
+            'status'          => $status,
+            'pic'             => $pic,
+            'submitted_by'    => $submitterName,
+            'submitted_by_id' => $submitterId,
+            'payment_term'    => $validated['paymentTerm'] ?? '-',
+            'retention'       => $validated['retention'] ?? '-',
+            'notes'           => $validated['notes'] ?? null,
         ]);
 
         // Simpan Attachments jika ada
@@ -531,6 +550,56 @@ class CustomerProjectController extends Controller
         ]);
 
         $project = CustomerProject::find($validated['projectId']);
+        if ($project && in_array($project->status, ['Waiting Approval', 'Draft'])) {
+            return response()->json([
+                'error' => 'Project belum disetujui untuk beroperasi (Status saat ini: ' . $project->status . '). Laporan site report hanya dapat diinput untuk project yang sudah disetujui/beroperasi.'
+            ], 422);
+        }
+
+        // Validasi Otorisasi: Hanya PIC atau Submitter yang berhak menginput site report (kecuali peran manajerial)
+        $identifier = $request->header('X-User-Identifier');
+        if ($identifier && $project) {
+            $user = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                ->first();
+            if ($user) {
+                $role = strtolower(trim($user->role ?? ''));
+                $isManagerOrAdmin = in_array($role, [
+                    'super admin', 'admin super', 'branch manager', 'general manager', 
+                    'manajer proyek', 'project manager', 'kepala cabang', 'unit head', 'direktur'
+                ]);
+
+                if (strtolower($user->identifier) === 'rudi@sscworks.com' || str_contains($role, 'it') || str_contains($role, 'support')) {
+                    $isManagerOrAdmin = false;
+                }
+
+                if (!$isManagerOrAdmin) {
+                    $userName = strtolower(trim($user->name ?: $user->username));
+                    $userEmail = strtolower(trim($user->identifier));
+                    $emailPrefix = explode('@', $userEmail)[0] ?? '';
+                    $projPic = strtolower(trim($project->pic ?? ''));
+                    
+                    $app = Approval::find($project->id);
+                    $subId = strtolower(trim($project->submitted_by_id ?? ($app ? $app->submitted_by_id : '')));
+                    $subBy = strtolower(trim($project->submitted_by ?? ($app ? $app->submitted_by : '')));
+
+                    $isPic = ($projPic === $userName)
+                        || ($projPic === $userEmail)
+                        || (!empty($emailPrefix) && ($projPic === $emailPrefix || str_contains($projPic, $emailPrefix)))
+                        || (!empty($userName) && (str_contains($projPic, $userName) || str_contains($userName, $projPic)));
+
+                    $isSubmitter = (!empty($subId) && ($subId === $userEmail || $subId === (string)$user->id || $subId === $emailPrefix))
+                        || (!empty($subBy) && ($subBy === $userName || str_contains($subBy, $userName) || str_contains($userName, $subBy)));
+
+                    if (!$isPic && !$isSubmitter) {
+                        return response()->json([
+                            'error' => 'Anda tidak memiliki wewenang untuk menginput site report pada project ini. Laporan hanya dapat diajukan oleh PIC yang ditugaskan (' . $project->pic . ') atau pengguna dengan peran manajerial.'
+                        ], 403);
+                    }
+                }
+            }
+        }
+
         $unit = $project ? $project->unit : 'Cabang Surabaya';
 
         $approvalId = $validated['id'];
