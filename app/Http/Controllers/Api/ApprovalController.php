@@ -715,6 +715,22 @@ class ApprovalController extends Controller
             'documentUrl'        => 'nullable|string',
         ]);
 
+        if ($validated['itemType'] === 'construction') {
+            $work = \App\Models\ConstructionWork::find($validated['itemId']);
+            if ($work && !in_array($work->status, ['On Schedule', 'Delayed'])) {
+                return response()->json([
+                    'message' => 'Revisi kontrak hanya dapat diajukan untuk pekerjaan yang sedang berjalan (Status: On Schedule atau Delayed). Status saat ini: ' . $work->status,
+                ], 422);
+            }
+        } elseif ($validated['itemType'] === 'customer-project') {
+            $proj = \App\Models\CustomerProject::find($validated['itemId']);
+            if ($proj && !in_array($proj->status, ['On Schedule', 'Delayed'])) {
+                return response()->json([
+                    'message' => 'Revisi kontrak hanya dapat diajukan untuk project customer yang sedang berjalan (Status: On Schedule atau Delayed). Status saat ini: ' . $proj->status,
+                ], 422);
+            }
+        }
+
         $revId = 'REV-' . date('Ymd') . '-' . substr(strtoupper(uniqid()), -4);
         $addendumId = 'ADD-' . date('Ymd') . '-' . substr(strtoupper(uniqid()), -4);
         $unit = $validated['unit'] ?? 'Head Office';
