@@ -133,6 +133,39 @@ class ApprovalWorkflowSeeder extends Seeder
                     ['order' => 2, 'stage_level' => 2, 'stage_name' => 'Tahap 2: General Manager', 'is_sequential' => false, 'sub_order' => 1, 'role' => 'General Manager', 'approver' => 'Lazuardhi Hilman Lathif', 'unit_scope' => 'All units', 'threshold' => 0, 'required' => true],
                 ],
             ],
+            [
+                'id'            => 'WFL-010',
+                'module'        => 'Project Customer',
+                'process'       => 'Pengadaan Material & Subkontraktor',
+                'workflow_type' => 'submission',
+                'mode'          => 'Layered',
+                'status'        => 'Active',
+                'is_customized' => false,
+                'stages' => [
+                    ['order' => 1, 'stage_level' => 1, 'stage_name' => 'Tahap 1: Verifikasi Teknis Lapangan', 'is_sequential' => false, 'sub_order' => 1, 'role' => 'Site Engineer', 'approver' => 'Budi Santoso', 'unit_scope' => 'Same unit', 'threshold' => 0, 'required' => true],
+                    ['order' => 2, 'stage_level' => 1, 'stage_name' => 'Tahap 1: Verifikasi Teknis Lapangan', 'is_sequential' => false, 'sub_order' => 2, 'role' => 'Quality Control Officer', 'approver' => 'Rian Pratama', 'unit_scope' => 'Same unit', 'threshold' => 0, 'required' => true],
+                    ['order' => 3, 'stage_level' => 1, 'stage_name' => 'Tahap 1: Verifikasi Teknis Lapangan', 'is_sequential' => false, 'sub_order' => 3, 'role' => 'HSE / Safety Inspector', 'approver' => 'Dimas Prasetyo', 'unit_scope' => 'Same unit', 'threshold' => 0, 'required' => true],
+                    ['order' => 4, 'stage_level' => 2, 'stage_name' => 'Tahap 2: Evaluasi Komersial & Keuangan', 'is_sequential' => false, 'sub_order' => 1, 'role' => 'Staff Commercial', 'approver' => 'Andi Sultan', 'unit_scope' => 'All units', 'threshold' => 0, 'required' => true],
+                    ['order' => 5, 'stage_level' => 2, 'stage_name' => 'Tahap 2: Evaluasi Komersial & Keuangan', 'is_sequential' => false, 'sub_order' => 2, 'role' => 'Finance Reviewer', 'approver' => 'Virga Damayanti', 'unit_scope' => 'All units', 'threshold' => 50000000, 'required' => true],
+                    ['order' => 6, 'stage_level' => 2, 'stage_name' => 'Tahap 2: Evaluasi Komersial & Keuangan', 'is_sequential' => false, 'sub_order' => 3, 'role' => 'Cost Control Specialist', 'approver' => 'Kevin Ardiansyah', 'unit_scope' => 'All units', 'threshold' => 75000000, 'required' => true],
+                    ['order' => 7, 'stage_level' => 3, 'stage_name' => 'Tahap 3: Otorisasi General Manager', 'is_sequential' => false, 'sub_order' => 1, 'role' => 'General Manager', 'approver' => 'Lazuardhi Hilman Lathif', 'unit_scope' => 'All units', 'threshold' => 100000000, 'required' => true],
+                ],
+            ],
+            [
+                'id'            => 'WFL-011',
+                'module'        => 'Legal Operations',
+                'process'       => 'Kerja Sama Strategis & Joint Venture',
+                'workflow_type' => 'submission',
+                'mode'          => 'Layered',
+                'status'        => 'Active',
+                'is_customized' => false,
+                'stages' => [
+                    ['order' => 1, 'stage_level' => 1, 'stage_name' => 'Tahap 1: Kajian Legal & Kepatuhan Risiko', 'is_sequential' => false, 'sub_order' => 1, 'role' => 'Legal Officer', 'approver' => 'Ayu Larasati', 'unit_scope' => 'All units', 'threshold' => 0, 'required' => true],
+                    ['order' => 2, 'stage_level' => 1, 'stage_name' => 'Tahap 1: Kajian Legal & Kepatuhan Risiko', 'is_sequential' => false, 'sub_order' => 2, 'role' => 'Compliance Specialist', 'approver' => 'Hendri Gunawan', 'unit_scope' => 'All units', 'threshold' => 0, 'required' => true],
+                    ['order' => 3, 'stage_level' => 2, 'stage_name' => 'Tahap 2: Pengesahan Dewan Direksi & GM', 'is_sequential' => false, 'sub_order' => 1, 'role' => 'Branch Manager', 'approver' => 'Bambang Wijaya', 'unit_scope' => 'Same unit', 'threshold' => 0, 'required' => true],
+                    ['order' => 4, 'stage_level' => 2, 'stage_name' => 'Tahap 2: Pengesahan Dewan Direksi & GM', 'is_sequential' => false, 'sub_order' => 2, 'role' => 'General Manager', 'approver' => 'Lazuardhi Hilman Lathif', 'unit_scope' => 'All units', 'threshold' => 0, 'required' => true],
+                ],
+            ],
         ];
 
         foreach ($workflows as $wfl) {
