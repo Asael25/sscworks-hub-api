@@ -42,17 +42,21 @@ class DocumentController extends Controller
                         foreach ($allowedUnits as $unit) {
                             if (!$unit || $unit === '*') continue;
                             $q->orWhere('unit', $unit);
+                            $q->orWhere('branch', $unit);
 
                             $dashHyphen = str_replace('—', '-', $unit);
                             $dashEm = str_replace('-', '—', $unit);
                             $q->orWhere('unit', $dashHyphen)
-                              ->orWhere('unit', $dashEm);
+                              ->orWhere('unit', $dashEm)
+                              ->orWhere('branch', $dashHyphen)
+                              ->orWhere('branch', $dashEm);
 
                             $clean = trim(str_replace(['SSC', 'Works', 'Cabang', '—', '-'], ' ', $unit));
                             if (!empty($clean)) {
-                                $q->orWhere('unit', 'LIKE', '%' . $clean . '%');
+                                $q->orWhere('unit', 'LIKE', '%' . $clean . '%')
+                                  ->orWhere('branch', 'LIKE', '%' . $clean . '%');
                                 if (stripos($clean, 'Head Office') !== false) {
-                                    $hoDepts = ['Procurement', 'IT & Digital', 'Human Resources', 'Commercial', 'Accounting', 'Human Capital', 'Finance', 'Operations', 'Legal'];
+                                    $hoDepts = ['Procurement', 'IT & Digital', 'Human Resources', 'Commercial', 'Accounting', 'Human Capital', 'Finance', 'Finance & Accounting', 'Operations', 'Legal', 'Legal & Compliance', 'Engineering & Desain', 'Engineering & Konstruksi', 'Operasional Head Office'];
                                     $q->orWhereIn('unit', $hoDepts);
                                 }
                             }
@@ -69,6 +73,17 @@ class DocumentController extends Controller
 
         if ($request->filled('category') && $request->category !== 'All') {
             $query->where('category', $request->category);
+        }
+
+        if ($request->filled('branch') && $request->branch !== 'All') {
+            $branch = trim($request->branch);
+            $query->where(function ($q) use ($branch) {
+                $q->where('branch', $branch);
+                $cleanBranch = trim(str_replace(['Cabang', 'SSC', 'Works', '—', '-'], ' ', $branch));
+                if (!empty($cleanBranch)) {
+                    $q->orWhere('branch', 'LIKE', "%{$cleanBranch}%");
+                }
+            });
         }
 
         if ($request->filled('unit') && $request->unit !== 'All') {
@@ -116,6 +131,7 @@ class DocumentController extends Controller
                 'relatedRequest' => $doc->related_request ?? '-',
                 'relatedTitle' => $doc->related_title ?? '',
                 'unit' => $doc->unit,
+                'branch' => $doc->branch ?? 'Head Office',
                 'fileType' => $doc->file_type,
                 'size' => $doc->size,
                 'uploadedBy' => $doc->uploaded_by,

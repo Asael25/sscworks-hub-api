@@ -229,7 +229,13 @@ class ConstructionController extends Controller
         $name = !empty($validated['name']) ? $validated['name'] : 'Draft Pekerjaan Internal (' . date('d/m/Y H:i') . ')';
         $unit = !empty($validated['unit']) ? $validated['unit'] : 'SSC Samarinda';
         $location = !empty($validated['location']) ? $validated['location'] : 'Lokasi Draft';
-        $vendor = !empty($validated['vendor']) ? $validated['vendor'] : 'Vendor Draft';
+        $rawVendor = !empty($validated['vendor']) ? trim($validated['vendor']) : 'Vendor Draft';
+        if ($rawVendor !== 'Vendor Draft') {
+            $existingVendor = ConstructionWork::whereRaw('LOWER(vendor) = ?', [strtolower($rawVendor)])->value('vendor');
+            $vendor = $existingVendor ?: $rawVendor;
+        } else {
+            $vendor = 'Vendor Draft';
+        }
         $contractNumber = !empty($validated['contractNumber']) ? $validated['contractNumber'] : 'SPK-DRAFT-' . rand(100, 999);
         $pic = !empty($validated['pic']) ? $validated['pic'] : 'PIC (Draft)';
         $startDate = !empty($validated['startDate']) ? $validated['startDate'] : date('Y-m-d');
@@ -408,7 +414,13 @@ class ConstructionController extends Controller
         $name = !empty($validated['name']) ? $validated['name'] : $work->name;
         $unit = !empty($validated['unit']) ? $validated['unit'] : $work->unit;
         $location = !empty($validated['location']) ? $validated['location'] : $work->location;
-        $vendor = !empty($validated['vendor']) ? $validated['vendor'] : $work->vendor;
+        if (!empty($validated['vendor'])) {
+            $rawVendor = trim($validated['vendor']);
+            $existingVendor = ConstructionWork::whereRaw('LOWER(vendor) = ?', [strtolower($rawVendor)])->value('vendor');
+            $vendor = $existingVendor ?: $rawVendor;
+        } else {
+            $vendor = $work->vendor;
+        }
         $contractNumber = !empty($validated['contractNumber']) ? $validated['contractNumber'] : $work->contract_number;
         $pic = !empty($validated['pic']) ? $validated['pic'] : $work->pic;
         $startDate = !empty($validated['startDate']) ? $validated['startDate'] : $work->start_date;

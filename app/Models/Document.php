@@ -19,6 +19,7 @@ class Document extends Model
         'related_request',
         'related_title',
         'unit',
+        'branch',
         'file_type',
         'size',
         'uploaded_by',
