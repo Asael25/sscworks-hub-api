@@ -44,25 +44,6 @@ Route::post('/upload', [App\Http\Controllers\Api\FileController::class, 'upload'
 Route::get('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::class, 'index']);
 Route::post('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::class, 'store']);
 
-Route::get('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'index']);
-Route::get('/chat-users', [\App\Http\Controllers\Api\ChatController::class, 'getUsers']);
-Route::get('/chat-requests', [\App\Http\Controllers\Api\ChatController::class, 'getChatRequests']);
-Route::get('/chat/presence', [\App\Http\Controllers\Api\ChatController::class, 'getPresence']);
-Route::post('/chat/presence/heartbeat', [\App\Http\Controllers\Api\ChatController::class, 'heartbeat']);
-Route::post('/chat/presence/leave', [\App\Http\Controllers\Api\ChatController::class, 'leave']);
-Route::post('/conversations', [\App\Http\Controllers\Api\ChatController::class, 'storeConversation']);
-Route::get('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatController::class, 'getMessages']);
-Route::post('/conversations/{id}/messages', [\App\Http\Controllers\Api\ChatController::class, 'sendMessage']);
-Route::delete('/messages/{id}', [\App\Http\Controllers\Api\ChatController::class, 'deleteMessage']);
-Route::post('/conversations/{id}/attach-request', [\App\Http\Controllers\Api\ChatController::class, 'attachRequest']);
-Route::delete('/conversations/{id}/related-requests/{requestId}', [\App\Http\Controllers\Api\ChatController::class, 'detachRequest']);
-Route::post('/conversations/{id}/members', [\App\Http\Controllers\Api\ChatController::class, 'addMembers']);
-Route::delete('/conversations/{id}/members/{memberId}', [\App\Http\Controllers\Api\ChatController::class, 'removeMember']);
-Route::delete('/conversations/{id}', [\App\Http\Controllers\Api\ChatController::class, 'destroyConversation']);
-Route::post('/conversations/{id}/read', [\App\Http\Controllers\Api\ChatController::class, 'markRead']);
-Route::post('/chat/purge-expired', [\App\Http\Controllers\Api\ChatController::class, 'purgeExpired']);
-Route::post('/chat/clear-all', [\App\Http\Controllers\Api\ChatController::class, 'clearAll']);
-
 
 Route::get('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'index']);
 Route::post('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'store']);
