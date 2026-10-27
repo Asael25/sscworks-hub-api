@@ -177,7 +177,7 @@ class DocumentController extends Controller
         if ($request->hasFile('file')) {
             $file = $request->file('file');
             $fileName = $file->getClientOriginalName();
-            $path = $file->store('attachments', 'public');
+            $path = $file->store('attachments/documents', 'public');
             $fileUrl = '/storage/' . $path;
             $rawSize = $file->getSize();
             $size = $rawSize < 1000000 ? round($rawSize / 1024) . ' KB' : round($rawSize / (1024 * 1024), 1) . ' MB';
@@ -251,7 +251,7 @@ class DocumentController extends Controller
 
         $file = $request->file('file');
         $fileName = $file->getClientOriginalName();
-        $path = $file->store('attachments', 'public');
+        $path = $file->store('attachments/documents', 'public');
         $fileUrl = '/storage/' . $path;
         $rawSize = $file->getSize();
         $size = $rawSize < 1000000 ? round($rawSize / 1024) . ' KB' : round($rawSize / (1024 * 1024), 1) . ' MB';
