@@ -59,7 +59,7 @@ class ApprovalController extends Controller
                     'name' => $att->name,
                     'size' => $att->size,
                     'type' => $att->type,
-                    'url' => $att->file_url ?? $att->file_path,
+                    'url' => preg_replace('/^https?:\/\/[^\/]+(?:\/storage\/)/i', '/storage/', $att->file_url ?? $att->file_path),
                 ];
             }),
             'history' => $item->history->map(function ($hst) {
