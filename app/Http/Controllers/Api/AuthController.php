@@ -54,7 +54,8 @@ class AuthController extends Controller
         }
 
         $remember = $request->boolean('remember', false);
-        $expiresAt = now()->addHours($remember ? 720 : 8)->timestamp * 1000;
+        // Non-remember: 8 jam (jam kerja), Remember: 12 jam (maksimal 1 hari kerja, mencegah auto-login esok harinya)
+        $expiresAt = now()->addHours($remember ? 12 : 8)->timestamp * 1000;
 
         $user->touchActive();
 
