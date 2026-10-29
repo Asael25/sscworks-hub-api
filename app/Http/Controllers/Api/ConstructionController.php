@@ -753,6 +753,10 @@ class ConstructionController extends Controller
                 'note'        => "Laporan telah direvisi oleh {$pic} dan diajukan kembali ke Tahap {$existing->current_stage}.",
                 'at'          => date('d M Y, H:i'),
             ]);
+
+            // Kirim notifikasi email ke reviewer aktif bahwa revisi telah disubmit
+            \App\Services\ApprovalNotificationService::notifyPendingApprover($existing);
+            \App\Services\ApprovalNotificationService::notifySubmissionReceipt($existing);
         }
 
         return response()->json([
