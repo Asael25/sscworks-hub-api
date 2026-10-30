@@ -113,7 +113,7 @@ class ActivityLogController extends Controller
                 'action_type' => 'submitted',
                 'entity_type' => 'CustomerProject',
                 'entity_id' => 'CP-2026-0091',
-                'entity_title' => 'Konstruksi Storage Tank 2000 m3 — PT Kaltim Prima',
+                'entity_title' => 'Konstruksi Storage Tank 2000 m3 - PT Kaltim Prima',
                 'description' => 'Laporan mingguan ke-6 diajukan untuk proses GM Review.',
                 'metadata' => ['email' => 'rina.wijaya@sscworks.com', 'href' => '/customer-project'],
                 'created_at' => Carbon::now()->subHours(4),
@@ -135,7 +135,7 @@ class ActivityLogController extends Controller
             [
                 'user_name' => 'Virga Damayanti',
                 'user_role' => 'Admin HO',
-                'user_unit' => 'SSC Works — Head Office',
+                'user_unit' => 'SSC Works - Head Office',
                 'module' => 'Approval',
                 'action' => 'Approve Permintaan',
                 'action_type' => 'approved',

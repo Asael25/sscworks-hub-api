@@ -28,30 +28,30 @@ class DocumentSyncService
         $unitMap = [
             'Unit Samarinda' => 'SSC Samarinda',
             'Cabang Samarinda' => 'SSC Samarinda',
-            'SSC Works — Samarinda' => 'SSC Samarinda',
+            'SSC Works - Samarinda' => 'SSC Samarinda',
             'SSC Works - Samarinda' => 'SSC Samarinda',
             
             'Cabang Balikpapan' => 'SSC Balikpapan',
             'Unit Balikpapan' => 'SSC Balikpapan',
-            'SSC Works — Balikpapan' => 'SSC Balikpapan',
+            'SSC Works - Balikpapan' => 'SSC Balikpapan',
             'SSC Works - Balikpapan' => 'SSC Balikpapan',
 
             'Cabang Surabaya' => 'SSC Surabaya',
             'Unit Surabaya' => 'SSC Surabaya',
-            'SSC Works — Surabaya' => 'SSC Surabaya',
+            'SSC Works - Surabaya' => 'SSC Surabaya',
             'SSC Works - Surabaya' => 'SSC Surabaya',
 
             'Cabang Jakarta' => 'SSC Jakarta',
             'Unit Jakarta' => 'SSC Jakarta',
-            'SSC Works — Jakarta' => 'SSC Jakarta',
+            'SSC Works - Jakarta' => 'SSC Jakarta',
             'SSC Works - Jakarta' => 'SSC Jakarta',
 
             'Cabang Palu' => 'SSC Palu',
             'Unit Palu' => 'SSC Palu',
-            'SSC Works — Palu' => 'SSC Palu',
+            'SSC Works - Palu' => 'SSC Palu',
             'SSC Works - Palu' => 'SSC Palu',
 
-            'SSC Works — Head Office' => 'Head Office',
+            'SSC Works - Head Office' => 'Head Office',
             'SSC Works - Head Office' => 'Head Office',
             'SSC Head Office' => 'Head Office',
         ];
@@ -280,7 +280,7 @@ class DocumentSyncService
             'module' => 'Internal Construction',
             'category' => 'Construction',
             'related_request' => $relatedCode,
-            'related_title' => "Laporan Progres {$period} — {$work->name}",
+            'related_title' => "Laporan Progres {$period} - {$work->name}",
             'unit' => $unit,
             'file_type' => in_array($ext, ['PDF', 'XLSX', 'DOCX', 'JPG', 'PNG', 'ZIP']) ? $ext : 'PDF',
             'size' => $size,

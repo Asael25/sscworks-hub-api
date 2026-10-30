@@ -44,7 +44,7 @@ class SystemUnitController extends Controller
             'code' => strtoupper(trim($validated['code'])),
             'name' => trim($validated['name']),
             'type' => $validated['type'],
-            'parent' => $validated['parent'] ?: '—',
+            'parent' => $validated['parent'] ?: '-',
             'status' => 'Active',
         ]);
 
@@ -72,7 +72,7 @@ class SystemUnitController extends Controller
             'code' => strtoupper(trim($validated['code'])),
             'name' => trim($validated['name']),
             'type' => $validated['type'],
-            'parent' => $validated['parent'] ?: '—',
+            'parent' => $validated['parent'] ?: '-',
         ]);
 
         return response()->json($unit->toFrontendSummary());

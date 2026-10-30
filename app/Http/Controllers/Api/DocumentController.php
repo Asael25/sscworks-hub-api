@@ -384,7 +384,7 @@ class DocumentController extends Controller
 
         // 2. If spreadsheet (XLSX)
         if (strtoupper($document->file_type) === 'XLSX') {
-            $csv = "PT SSC WORKS — OPERATIONAL DOCUMENT EXPORT\n";
+            $csv = "PT SSC WORKS - OPERATIONAL DOCUMENT EXPORT\n";
             $csv .= "Document ID:," . $document->id . "\n";
             $csv .= "File Name:," . $document->file_name . "\n";
             $csv .= "Module:," . $document->module . "\n";
@@ -405,7 +405,7 @@ class DocumentController extends Controller
 
         // 3. Structured Document Record Text
         $content = "========================================================\n";
-        $content .= "           PT SSC WORKS — DOCUMENT CENTER               \n";
+        $content .= "           PT SSC WORKS - DOCUMENT CENTER               \n";
         $content .= "========================================================\n\n";
         $content .= "Document Code   : " . $document->id . "\n";
         $content .= "File Name       : " . $document->file_name . "\n";

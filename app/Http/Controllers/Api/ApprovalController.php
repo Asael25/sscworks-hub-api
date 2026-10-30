@@ -1073,7 +1073,7 @@ class ApprovalController extends Controller
                 module: 'Project Customer',
                 title: 'Tes Notifikasi Approval System',
                 summary: 'Pengujian pengiriman email notifikasi approval center SSCWorks Hub.',
-                unit: 'SSC Works — Head Office',
+                unit: 'SSC Works - Head Office',
                 submitterName: 'Andi Sultan',
                 submittedDate: date('d M Y'),
                 stageName: 'Tahap 1: Verifikasi Dokumen',

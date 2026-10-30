@@ -64,7 +64,7 @@ class SystemUnit extends Model
             'code' => $this->code,
             'name' => $this->name,
             'type' => $this->type,
-            'parent' => $this->parent ?: '—',
+            'parent' => $this->parent ?: '-',
             'status' => $this->status,
             'inUse' => $isPermanent || $members > 0,
             'members' => $members,
