@@ -37,7 +37,7 @@ class NewAccountWelcomeMail extends Mailable
         $this->plainPassword = $plainPassword;
         $this->role = $role;
         $this->unit = $unit;
-        $this->loginUrl = $loginUrl ?: (env('FRONTEND_URL', 'http://localhost:5173'));
+        $this->loginUrl = $loginUrl ?: (env('FRONTEND_URL', 'https://tes.sscworks.com'));
         $this->createdAt = $createdAt ?: date('d M Y, H:i');
     }
 

@@ -80,7 +80,7 @@ class ApprovalNotificationMail extends Mailable
         $this->decisionNote = $decisionNote;
         $this->actorName = $actorName;
         $this->actorRole = $actorRole;
-        $this->actionUrl = $actionUrl ?: (env('FRONTEND_URL', 'http://localhost:5173') . '/approval-center');
+        $this->actionUrl = $actionUrl ?: (env('FRONTEND_URL', 'https://tes.sscworks.com') . '/approval-center');
     }
 
     /**

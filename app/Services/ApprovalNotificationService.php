@@ -184,7 +184,7 @@ class ApprovalNotificationService
                 decisionNote: null,
                 actorName: null,
                 actorRole: null,
-                actionUrl: env('FRONTEND_URL', 'http://localhost:5173') . '/approval-center'
+                actionUrl: env('FRONTEND_URL', 'https://tes.sscworks.com') . '/approval-center'
             );
 
             $hasSmtpCreds = !empty(env('MAIL_USERNAME')) && !empty(env('MAIL_PASSWORD'));
@@ -274,7 +274,7 @@ class ApprovalNotificationService
                 decisionNote: null,
                 actorName: null,
                 actorRole: null,
-                actionUrl: env('FRONTEND_URL', 'http://localhost:5173') . '/approval-center'
+                actionUrl: env('FRONTEND_URL', 'https://tes.sscworks.com') . '/approval-center'
             );
 
             $hasSmtpCreds = !empty(env('MAIL_USERNAME')) && !empty(env('MAIL_PASSWORD'));
@@ -367,7 +367,7 @@ class ApprovalNotificationService
                     decisionNote: $reason,
                     actorName: $actorName,
                     actorRole: $actorRole,
-                    actionUrl: env('FRONTEND_URL', 'http://localhost:5173') . '/approval-center'
+                    actionUrl: env('FRONTEND_URL', 'https://tes.sscworks.com') . '/approval-center'
                 );
 
                 $hasSmtpCreds = !empty(env('MAIL_USERNAME')) && !empty(env('MAIL_PASSWORD'));
