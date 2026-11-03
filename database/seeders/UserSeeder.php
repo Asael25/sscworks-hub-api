@@ -80,6 +80,8 @@ class UserSeeder extends Seeder
                     "Help Center"
                 ]),
                 'authorities' => json_encode(["Submit", "Edit", "Approval", "Export"]),
+                'eula_agreed' => true,
+                'eula_agreed_at' => now(),
             ],
             [
                 'identifier' => 'sultan@sscworks.com',
