@@ -63,6 +63,25 @@ class UserSeeder extends Seeder
                 'authorities' => json_encode($allAuthorities),
             ],
             [
+                'identifier' => 'ayu@sscworks.com',
+                'username' => 'Ayu',
+                'password' => Hash::make('user123'),
+                'name' => 'Ayu Larasati',
+                'role' => 'Legal Officer',
+                'primary_unit' => 'SSC Works — Head Office',
+                'additional_units' => json_encode(['*']),
+                'hub_access' => 'Active',
+                'menu_access' => json_encode([
+                    "Dashboard",
+                    "Approval Center",
+                    "Legal Operations",
+                    "Document Center",
+                    "Chat & Collaboration",
+                    "Help Center"
+                ]),
+                'authorities' => json_encode(["Submit", "Edit", "Approval", "Export"]),
+            ],
+            [
                 'identifier' => 'sultan@sscworks.com',
                 'username' => 'Sultan',
                 'password' => Hash::make('user123'),

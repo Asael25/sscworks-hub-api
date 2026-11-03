@@ -241,7 +241,8 @@ class ApprovalController extends Controller
                 $targetRole = strtolower(trim($stg->role));
                 $userRole = strtolower(trim($user->role ?? ''));
 
-                $isRoleMatch = ($targetRole === $userRole)
+                $isRoleMatch = ($user && in_array($user->role, ['Super Admin', 'Admin Super']))
+                    || ($targetRole === $userRole)
                     || ($targetRole === 'branch manager' && in_array($userRole, ['branch manager', 'kepala cabang', 'manajer proyek']))
                     || ($targetRole === 'general manager' && in_array($userRole, ['general manager', 'gm']));
 
@@ -402,6 +403,22 @@ class ApprovalController extends Controller
                         'at'          => date('d M Y, H:i'),
                     ]);
 
+                    // Jika modul Legal dan menyelesaikan layer 1 (Review Legal), alihkan status LegalRequest ke 'in_process'
+                    if (in_array($approval->module, ['Legal Operations', 'Legal'])) {
+                        $legalReq = \App\Models\LegalRequest::where('request_code', $approval->id)->orWhere('id', $approval->id)->first();
+                        if ($legalReq) {
+                            $legalReq->update(['status' => 'in_process']);
+                            \App\Models\LegalTimelineEvent::create([
+                                'legal_request_id' => $legalReq->id,
+                                'actor'            => $actorName,
+                                'role'             => $actorRole ?: 'Legal Officer',
+                                'event'            => 'Review Tim Legal Selesai',
+                                'note'             => "Review dokumen oleh {$actorName} ({$actorRole}) selesai. Permohonan beralih ke status Dalam Proses (In Process) dan diteruskan ke tahap persetujuan berikutnya.",
+                                'created_at'       => now(),
+                            ]);
+                        }
+                    }
+
                     \App\Services\ApprovalNotificationService::notifyPendingApprover($approval->id);
 
                     $fresh = $approval->fresh(['stages', 'attachments', 'history']);
@@ -479,7 +496,18 @@ class ApprovalController extends Controller
                         \App\Models\ConstructionWork::where('id', $approval->id)->update(['status' => 'On Schedule']);
                     }
                 } elseif (in_array($approval->module, ['Legal Operations', 'Legal'])) {
-                    \App\Models\LegalRequest::where('request_code', $approval->id)->orWhere('id', $approval->id)->update(['status' => 'completed']);
+                    $legalReq = \App\Models\LegalRequest::where('request_code', $approval->id)->orWhere('id', $approval->id)->first();
+                    if ($legalReq) {
+                        $legalReq->update(['status' => 'completed']);
+                        \App\Models\LegalTimelineEvent::create([
+                            'legal_request_id' => $legalReq->id,
+                            'actor'            => $actorName,
+                            'role'             => $actorRole ?: 'Approver',
+                            'event'            => 'Persetujuan Final Selesai',
+                            'note'             => "Seluruh alur approval telah disetujui. Permohonan legal dinyatakan selesai (Completed).",
+                            'created_at'       => now(),
+                        ]);
+                    }
                 }
 
                 // Handler jika approval adalah Revisi Kontrak / Addendum
@@ -581,6 +609,20 @@ class ApprovalController extends Controller
         } elseif ($decision === 'return') {
             $actionLabel = 'Returned';
             $approval->status = 'Returned';
+            if (in_array($approval->module, ['Legal Operations', 'Legal'])) {
+                $legalReq = \App\Models\LegalRequest::where('request_code', $approval->id)->orWhere('id', $approval->id)->first();
+                if ($legalReq) {
+                    $legalReq->update(['status' => 'waiting_review']);
+                    \App\Models\LegalTimelineEvent::create([
+                        'legal_request_id' => $legalReq->id,
+                        'actor'            => $actorName,
+                        'role'             => $actorRole ?: 'Approver',
+                        'event'            => 'Permohonan Dikembalikan',
+                        'note'             => "Pengajuan dikembalikan oleh {$actorName} ({$actorRole}). Alasan: " . ($reason ?: 'Perbaikan dokumen diperlukan.'),
+                        'created_at'       => now(),
+                    ]);
+                }
+            }
             if (str_starts_with($approval->id, 'WPR-')) {
                 \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Revision Required']);
             }
@@ -630,6 +672,19 @@ class ApprovalController extends Controller
                 }
             } elseif (str_starts_with($approval->id, 'WPR-')) {
                 \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Rejected']);
+            } elseif (in_array($approval->module, ['Legal Operations', 'Legal']) && !$isDeletion) {
+                $legalReq = \App\Models\LegalRequest::where('request_code', $approval->id)->orWhere('id', $approval->id)->first();
+                if ($legalReq) {
+                    $legalReq->update(['status' => 'rejected']);
+                    \App\Models\LegalTimelineEvent::create([
+                        'legal_request_id' => $legalReq->id,
+                        'actor'            => $actorName,
+                        'role'             => $actorRole ?: 'Approver',
+                        'event'            => 'Permohonan Ditolak',
+                        'note'             => "Pengajuan ditolak oleh {$actorName} ({$actorRole}). Alasan: " . ($reason ?: 'Tidak memenuhi ketentuan legalitas.'),
+                        'created_at'       => now(),
+                    ]);
+                }
             }
 
             if (!empty($notesData['isContractRevision']) || str_starts_with($approval->request, 'Revisi Kontrak:')) {
