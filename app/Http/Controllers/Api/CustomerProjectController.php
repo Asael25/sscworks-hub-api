@@ -59,12 +59,50 @@ class CustomerProjectController extends Controller
         }
 
         $projects = $query->get();
-        $approvalMap = Approval::whereIn('id', $projects->pluck('id'))->get()->keyBy('id');
+        $projectIds = $projects->pluck('id')->toArray();
+        $approvalMap = Approval::whereIn('id', $projectIds)->get()->keyBy('id');
 
-        $formatted = $projects->map(function ($item) use ($approvalMap) {
+        // Check active pending deletion approvals
+        $activeDeletions = Approval::whereIn('status', ['Waiting', 'In Review'])
+            ->where(function ($q) {
+                $q->where('id', 'LIKE', 'DEL-%')
+                  ->orWhere('request', 'LIKE', 'Permohonan Hapus:%')
+                  ->orWhere('notes', 'LIKE', '%"isDeletionRequest":true%');
+            })
+            ->get();
+
+        $deletionMap = [];
+        $activeReportDeletions = [];
+        foreach ($activeDeletions as $del) {
+            $notesData = [];
+            if (!empty($del->notes) && str_starts_with(trim($del->notes), '{')) {
+                $notesData = json_decode($del->notes, true) ?: [];
+            }
+            $targetId = $notesData['targetItemId'] ?? null;
+            if (!$targetId) {
+                if (preg_match('/\((CPR-[^\)]+)\)/i', $del->request, $m)) {
+                    $targetId = trim($m[1]);
+                } elseif (preg_match('/Permohonan Hapus\s+(CPR-[^:]+):/i', $del->summary, $m)) {
+                    $targetId = trim($m[1]);
+                }
+            }
+            if ($targetId) {
+                if (in_array($targetId, $projectIds)) {
+                    $deletionMap[$targetId] = [
+                        'status' => 'pending',
+                        'reason' => $notesData['deletionReason'] ?? $del->summary,
+                        'approvalId' => $del->id,
+                    ];
+                }
+                $activeReportDeletions[$targetId] = $notesData['deletionReason'] ?? $del->summary;
+            }
+        }
+
+        $formatted = $projects->map(function ($item) use ($approvalMap, $deletionMap, $activeReportDeletions) {
             $app = $approvalMap->get($item->id);
             $subId = $item->submitted_by_id ?? ($app ? $app->submitted_by_id : null);
             $subBy = $item->submitted_by ?? ($app ? $app->submitted_by : null);
+            $delInfo = $deletionMap[$item->id] ?? null;
 
             return [
                 'id' => $item->id,
@@ -81,6 +119,8 @@ class CustomerProjectController extends Controller
                 'startDate' => $item->start_date,
                 'period' => $item->period,
                 'status' => $item->status,
+                'deletionStatus' => $delInfo ? $delInfo['status'] : null,
+                'deletionReason' => $delInfo ? $delInfo['reason'] : null,
                 'pic' => $item->pic,
                 'submittedById' => $subId,
                 'submittedBy' => $subBy,
@@ -105,13 +145,14 @@ class CustomerProjectController extends Controller
                         'actual' => (float) $s->actual,
                     ];
                 }),
-                'weekly' => $item->weeklyProgresses->map(function ($w) {
+                'weekly' => $item->weeklyProgresses->map(function ($w) use ($activeReportDeletions) {
                     return [
                         'period' => $w->period,
                         'target' => (float) $w->target,
                         'actual' => (float) $w->actual,
                         'note' => $w->note ?? '',
                         'reportedBy' => $w->reported_by,
+                        'deletionStatus' => isset($activeReportDeletions[$w->id]) ? 'pending' : null,
                     ];
                 }),
                 'issues' => $item->issues->map(function ($iss) {
