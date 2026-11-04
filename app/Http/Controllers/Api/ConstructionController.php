@@ -59,6 +59,40 @@ class ConstructionController extends Controller
             }
         }
 
+        // Auto-purge any construction works whose deletion request has already been Approved
+        $approvedDeletions = Approval::where('status', 'Approved')
+            ->where(function ($q) {
+                $q->where('id', 'LIKE', 'DEL-%')
+                  ->orWhere('request', 'LIKE', 'Permohonan Hapus:%')
+                  ->orWhere('notes', 'LIKE', '%"isDeletionRequest":true%');
+            })
+            ->get();
+
+        foreach ($approvedDeletions as $del) {
+            $notesData = [];
+            if (!empty($del->notes) && str_starts_with(trim($del->notes), '{')) {
+                $notesData = json_decode($del->notes, true) ?: [];
+            }
+            $targetId = $notesData['targetItemId'] ?? null;
+            if (!$targetId) {
+                if (preg_match('/\(([A-Z0-9-]+)\)/i', $del->request, $m)) {
+                    $targetId = trim($m[1]);
+                } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary, $m)) {
+                    $targetId = trim($m[1]);
+                }
+            }
+            if ($targetId) {
+                ConstructionScope::where('work_id', $targetId)->delete();
+                ConstructionAttachment::where('work_id', $targetId)->delete();
+                ConstructionWeeklyProgress::where('report_id', $targetId)->orWhere('id', $targetId)->orWhere('work_id', $targetId)->delete();
+                ConstructionIssue::where('work_id', $targetId)->delete();
+                ConstructionPhoto::where('work_id', $targetId)->delete();
+                ConstructionApproval::where('work_id', $targetId)->delete();
+                ContractAddendum::where('target_item_id', $targetId)->delete();
+                ConstructionWork::where('id', $targetId)->delete();
+            }
+        }
+
         $works = $query->get();
         $workIds = $works->pluck('id')->toArray();
         $approvalMap = Approval::whereIn('id', $workIds)->get()->keyBy('id');
@@ -832,7 +866,11 @@ class ConstructionController extends Controller
         if ($work) {
             ConstructionScope::where('work_id', $work->id)->delete();
             ConstructionAttachment::where('work_id', $work->id)->delete();
-            ConstructionWeeklyProgress::where('work_id', $work->id)->delete();
+            ConstructionWeeklyProgress::where('work_id', $work->id)->orWhere('report_id', $work->id)->delete();
+            ConstructionIssue::where('work_id', $work->id)->delete();
+            ConstructionPhoto::where('work_id', $work->id)->delete();
+            ConstructionApproval::where('work_id', $work->id)->delete();
+            ContractAddendum::where('target_item_id', $work->id)->delete();
             $work->delete();
         }
 
@@ -843,6 +881,17 @@ class ConstructionController extends Controller
             \App\Models\ApprovalAttachment::where('approval_id', $id)->delete();
             $approval->delete();
         }
+
+        // Also clean up any pending/approved DEL- tickets associated with this work
+        \App\Models\Approval::where(function ($q) use ($id) {
+            $q->where('id', 'LIKE', 'DEL-%')
+              ->orWhere('request', 'LIKE', 'Permohonan Hapus:%')
+              ->orWhere('notes', 'LIKE', '%"isDeletionRequest":true%');
+        })->where(function ($q) use ($id) {
+            $q->where('notes', 'LIKE', '%"' . $id . '"%')
+              ->orWhere('request', 'LIKE', "%{$id}%")
+              ->orWhere('summary', 'LIKE', "%{$id}%");
+        })->delete();
 
         return response()->json([
             'ok' => true,

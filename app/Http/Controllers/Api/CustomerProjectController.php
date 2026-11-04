@@ -58,6 +58,39 @@ class CustomerProjectController extends Controller
             }
         }
 
+        // Auto-purge any customer projects whose deletion request has already been Approved
+        $approvedDeletions = Approval::where('status', 'Approved')
+            ->where(function ($q) {
+                $q->where('id', 'LIKE', 'DEL-%')
+                  ->orWhere('request', 'LIKE', 'Permohonan Hapus:%')
+                  ->orWhere('notes', 'LIKE', '%"isDeletionRequest":true%');
+            })
+            ->get();
+        foreach ($approvedDeletions as $del) {
+            $notesData = [];
+            if (!empty($del->notes) && str_starts_with(trim($del->notes), '{')) {
+                $notesData = json_decode($del->notes, true) ?: [];
+            }
+            $targetId = $notesData['targetItemId'] ?? null;
+            if (!$targetId) {
+                if (preg_match('/\(([A-Z0-9-]+)\)/i', $del->request, $m)) {
+                    $targetId = trim($m[1]);
+                } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary, $m)) {
+                    $targetId = trim($m[1]);
+                }
+            }
+            if ($targetId) {
+                CustomerProjectAttachment::where('project_id', $targetId)->delete();
+                CustomerProjectScope::where('project_id', $targetId)->delete();
+                CustomerProjectWeeklyProgress::where('project_id', $targetId)->orWhere('id', $targetId)->delete();
+                CustomerProjectIssue::where('project_id', $targetId)->delete();
+                CustomerProjectPhoto::where('project_id', $targetId)->delete();
+                CustomerProjectApproval::where('project_id', $targetId)->delete();
+                ContractAddendum::where('target_item_id', $targetId)->delete();
+                CustomerProject::where('id', $targetId)->delete();
+            }
+        }
+
         $projects = $query->get();
         $projectIds = $projects->pluck('id')->toArray();
         $approvalMap = Approval::whereIn('id', $projectIds)->get()->keyBy('id');
@@ -799,7 +832,11 @@ class CustomerProjectController extends Controller
         if ($project) {
             CustomerProjectAttachment::where('project_id', $project->id)->delete();
             \App\Models\CustomerProjectScope::where('project_id', $project->id)->delete();
-            \App\Models\CustomerProjectWeeklyProgress::where('project_id', $project->id)->delete();
+            \App\Models\CustomerProjectWeeklyProgress::where('project_id', $project->id)->orWhere('id', $project->id)->delete();
+            \App\Models\CustomerProjectIssue::where('project_id', $project->id)->delete();
+            \App\Models\CustomerProjectPhoto::where('project_id', $project->id)->delete();
+            \App\Models\CustomerProjectApproval::where('project_id', $project->id)->delete();
+            \App\Models\ContractAddendum::where('target_item_id', $project->id)->delete();
             $project->delete();
         }
 
@@ -810,6 +847,17 @@ class CustomerProjectController extends Controller
             \App\Models\ApprovalAttachment::where('approval_id', $id)->delete();
             $approval->delete();
         }
+
+        // Also clean up any pending/approved DEL- tickets associated with this project
+        \App\Models\Approval::where(function ($q) use ($id) {
+            $q->where('id', 'LIKE', 'DEL-%')
+              ->orWhere('request', 'LIKE', 'Permohonan Hapus:%')
+              ->orWhere('notes', 'LIKE', '%"isDeletionRequest":true%');
+        })->where(function ($q) use ($id) {
+            $q->where('notes', 'LIKE', '%"' . $id . '"%')
+              ->orWhere('request', 'LIKE', "%{$id}%")
+              ->orWhere('summary', 'LIKE', "%{$id}%");
+        })->delete();
 
         return response()->json([
             'ok' => true,

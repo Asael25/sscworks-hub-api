@@ -21,6 +21,15 @@ class ApprovalController extends Controller
         }
         $isDelReq = !empty($notesData['isDeletionRequest']) || str_starts_with($item->request, 'Permohonan Hapus:');
 
+        $targetItemId = $notesData['targetItemId'] ?? null;
+        if (!$targetItemId) {
+            if (preg_match('/\(([A-Z0-9-]+)\)/i', $item->request, $m)) {
+                $targetItemId = trim($m[1]);
+            } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $item->summary, $m)) {
+                $targetItemId = trim($m[1]);
+            }
+        }
+
         return [
             'id' => $item->id,
             'module' => $item->module,
@@ -74,7 +83,7 @@ class ApprovalController extends Controller
             'notes' => $item->notes ?? '',
             'isDeletionRequest' => (bool) $isDelReq,
             'deletionReason' => $notesData['deletionReason'] ?? ($isDelReq ? $item->summary : null),
-            'targetItemId' => $notesData['targetItemId'] ?? null,
+            'targetItemId' => $targetItemId,
             'originalStatus' => $notesData['originalStatus'] ?? null,
             'isContractRevision' => !empty($notesData['isContractRevision']) || str_starts_with($item->request, 'Revisi Kontrak:'),
             'contractRevision' => $notesData['contractRevision'] ?? null,
@@ -342,6 +351,13 @@ class ApprovalController extends Controller
             $actionLabel = 'Approved';
             if ($isDeletion) {
                 $targetId = $notesData['targetItemId'] ?? null;
+                if (!$targetId) {
+                    if (preg_match('/\(([A-Z0-9-]+)\)/i', $approval->request, $m)) {
+                        $targetId = trim($m[1]);
+                    } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $approval->summary, $m)) {
+                        $targetId = trim($m[1]);
+                    }
+                }
                 if ($targetId) {
                     try {
                         // Remove original approval ticket if exists so it disappears from all approvers' queues
@@ -355,33 +371,59 @@ class ApprovalController extends Controller
                     } catch (\Throwable $e) {
                         \Log::warning("Error deleting related approval: " . $e->getMessage());
                     }
-                }
 
-                try {
-                    if (in_array($approval->module, ['Legal', 'Legal Operations'])) {
-                        if ($targetId) {
+                    try {
+                        if (in_array($approval->module, ['Legal', 'Legal Operations'])) {
                             \App\Models\LegalAttachment::where('request_id', $targetId)->delete();
                             \App\Models\LegalRequest::where('id', $targetId)->orWhere('request_code', $targetId)->delete();
-                        }
-                    } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
-                        if ($targetId) {
+                        } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
                             \App\Models\ConstructionScope::where('work_id', $targetId)->delete();
                             \App\Models\ConstructionAttachment::where('work_id', $targetId)->delete();
                             \App\Models\ConstructionWeeklyProgress::where('report_id', $targetId)->orWhere('id', $targetId)->orWhere('work_id', $targetId)->delete();
+                            \App\Models\ConstructionIssue::where('work_id', $targetId)->delete();
+                            \App\Models\ConstructionPhoto::where('work_id', $targetId)->delete();
+                            \App\Models\ConstructionApproval::where('work_id', $targetId)->delete();
+                            \App\Models\ContractAddendum::where('target_item_id', $targetId)->delete();
                             \App\Models\ConstructionWork::where('id', $targetId)->delete();
-                        }
-                    } elseif (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
-                        if ($targetId) {
+                        } elseif (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
                             \App\Models\CustomerProjectAttachment::where('project_id', $targetId)->delete();
                             \App\Models\CustomerProjectScope::where('project_id', $targetId)->delete();
                             \App\Models\CustomerProjectWeeklyProgress::where('project_id', $targetId)->orWhere('id', $targetId)->delete();
+                            \App\Models\CustomerProjectIssue::where('project_id', $targetId)->delete();
+                            \App\Models\CustomerProjectPhoto::where('project_id', $targetId)->delete();
+                            \App\Models\CustomerProjectApproval::where('project_id', $targetId)->delete();
+                            \App\Models\ContractAddendum::where('target_item_id', $targetId)->delete();
                             \App\Models\CustomerProject::where('id', $targetId)->delete();
                         }
+                    } catch (\Throwable $e) {
+                        \Log::error("Error executing deletion for module {$approval->module}: " . $e->getMessage());
                     }
-                } catch (\Throwable $e) {
-                    \Log::error("Error executing deletion for module {$approval->module}: " . $e->getMessage());
                 }
+
                 $approval->status = 'Approved';
+                $approval->save();
+
+                \App\Models\ApprovalHistory::create([
+                    'approval_id' => $approval->id,
+                    'actor'       => $actorName,
+                    'role'        => $actorRole,
+                    'action'      => 'Approved',
+                    'note'        => $reason ?: 'Persetujuan hapus disetujui Super Admin.',
+                    'at'          => now()->translatedFormat('d M Y, H:i'),
+                ]);
+
+                \App\Services\ApprovalNotificationService::notifyDecision(
+                    $approval->fresh(['stages', 'attachments', 'history']),
+                    'approve',
+                    $reason,
+                    $actorName,
+                    $actorRole
+                );
+
+                return response()->json([
+                    'message' => "Permohonan hapus disetujui dan data terkait ({$targetId}) berhasil dihapus permanen.",
+                    'item'    => $this->formatItem($approval->fresh(['stages', 'attachments', 'history'])),
+                ]);
             } else {
                 // Tandai approval stage spesifik ini sebagai Approved
                 if ($matchedStage) {
@@ -688,7 +730,14 @@ class ApprovalController extends Controller
             $approval->status = 'Rejected';
             if ($isDeletion) {
                 $targetId = $notesData['targetItemId'] ?? null;
-                $origStatus = $notesData['originalStatus'] ?? 'Approved';
+                if (!$targetId) {
+                    if (preg_match('/\(([A-Z0-9-]+)\)/i', $approval->request, $m)) {
+                        $targetId = trim($m[1]);
+                    } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $approval->summary, $m)) {
+                        $targetId = trim($m[1]);
+                    }
+                }
+                $origStatus = $notesData['originalStatus'] ?? 'On Schedule';
                 try {
                     if (in_array($approval->module, ['Legal', 'Legal Operations'])) {
                         if ($targetId) {
