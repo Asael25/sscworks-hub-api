@@ -182,6 +182,24 @@ class ApprovalController extends Controller
             return response()->json(['message' => 'Pengajuan ini sudah difinalisasi.'], 422);
         }
 
+        // Anti self-approval check
+        if ($user) {
+            $cleanSubmittedById = strtolower(trim($approval->submitted_by_id ?? ''));
+            $cleanSubmittedBy = strtolower(trim($approval->submitted_by ?? ''));
+            $cleanUserId = strtolower(trim((string)($user->id ?? '')));
+            $cleanUserName = strtolower(trim($user->name ?? ''));
+            $cleanUsername = strtolower(trim($user->username ?? ''));
+            $cleanUserEmail = strtolower(trim($user->identifier ?? ''));
+            $emailPrefix = explode('@', $cleanUserEmail)[0] ?? '';
+
+            $isSelf = ($cleanSubmittedById && in_array($cleanSubmittedById, [$cleanUserId, $cleanUsername, $emailPrefix]))
+                || ($cleanSubmittedBy && in_array($cleanSubmittedBy, [$cleanUserName, $cleanUsername, $cleanUserId]));
+
+            if ($isSelf) {
+                return response()->json(['message' => 'Pengaju tidak dapat menyetujui pengajuannya sendiri.'], 403);
+            }
+        }
+
         $stages = $approval->stages()->orderBy('order')->get();
         
         // Dapatkan stages di level/layer aktif
@@ -199,13 +217,22 @@ class ApprovalController extends Controller
 
         $pendingInLayer = $currentLayerStages->filter(fn($s) => $s->status !== 'Approved');
 
-        // Check approver assignment if not superadmin
+        // Check if user is superadmin
         $isSuperAdmin = $user && in_array(strtolower(trim($user->role)), [
             'super admin',
             'admin super',
             'it & bussiness system support',
             'it & business system support',
         ]);
+
+        $isDeletionRequest = (bool) ($approval->is_deletion_request ?? false)
+            || str_starts_with($approval->request ?? '', 'Permohonan Hapus:');
+
+        if ($isDeletionRequest && !$isSuperAdmin) {
+            return response()->json([
+                'message' => 'Permohonan penghapusan data hanya dapat disetujui atau ditolak oleh Super Admin.'
+            ], 403);
+        }
 
         $matchedStage = null;
         $isSequential = (bool) ($currentLayerStages->first()?->is_sequential ?? false);
@@ -241,10 +268,22 @@ class ApprovalController extends Controller
                 $targetRole = strtolower(trim($stg->role));
                 $userRole = strtolower(trim($user->role ?? ''));
 
-                $isRoleMatch = ($user && in_array($user->role, ['Super Admin', 'Admin Super']))
-                    || ($targetRole === $userRole)
-                    || ($targetRole === 'branch manager' && in_array($userRole, ['branch manager', 'kepala cabang', 'manajer proyek']))
-                    || ($targetRole === 'general manager' && in_array($userRole, ['general manager', 'gm']));
+                $isTargetSuperAdmin = in_array($targetRole, ['super admin', 'admin super'])
+                    || str_contains(strtolower($stg->name ?? ''), 'super admin')
+                    || str_contains(strtolower($stg->stage_name ?? ''), 'super admin')
+                    || $isDeletionRequest;
+
+                if ($isSuperAdmin) {
+                    // Opsi B (Strict): Super Admin HANYA cocok jika tahapan secara spesifik ditujukan untuk Super Admin
+                    $isRoleMatch = $isTargetSuperAdmin;
+                } else {
+                    $isRoleMatch = !$isTargetSuperAdmin && (
+                        ($targetRole === $userRole)
+                        || ($targetRole === 'branch manager' && in_array($userRole, ['branch manager', 'kepala cabang', 'manajer proyek']))
+                        || ($targetRole === 'general manager' && in_array($userRole, ['general manager', 'gm']))
+                        || (in_array($targetRole, ['legal officer', 'legal review', 'legal']) && in_array($userRole, ['legal officer', 'legal', 'staf legal']))
+                    );
+                }
 
                 if ($isRoleMatch) {
                     $scope = $stg->unit_scope ?? 'All units';
