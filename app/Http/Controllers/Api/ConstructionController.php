@@ -252,6 +252,23 @@ class ConstructionController extends Controller
         $submitterName = $submitterUser ? ($submitterUser->name ?: $submitterUser->username) : $pic;
         $submitterId = $submitterUser ? $submitterUser->identifier : ($identifier ?: strtolower(str_replace(' ', '', $pic)));
 
+        // Idempotency / proteksi spam-klik: cek duplikasi dalam 15 detik terakhir
+        if (!$isDraft) {
+            $recent = ConstructionWork::where('name', $name)
+                ->where('unit', $unit)
+                ->where('pic', $pic)
+                ->where('created_at', '>=', now()->subSeconds(15))
+                ->first();
+
+            if ($recent) {
+                return response()->json([
+                    'message' => 'Pekerjaan konstruksi ini baru saja diajukan.',
+                    'workId' => $recent->id,
+                    'submittedAt' => $recent->created_at->toISOString(),
+                ], 200);
+            }
+        }
+
         $work = ConstructionWork::create([
             'id'              => $workId,
             'name'            => $name,
@@ -763,6 +780,30 @@ class ConstructionController extends Controller
             'success'    => true,
             'approvalId' => $approvalId,
             'message'    => 'Weekly progress report berhasil diajukan.',
+        ]);
+    }
+
+    public function destroy($id)
+    {
+        $work = ConstructionWork::find($id);
+        if ($work) {
+            ConstructionScope::where('work_id', $work->id)->delete();
+            ConstructionAttachment::where('work_id', $work->id)->delete();
+            ConstructionWeeklyProgress::where('work_id', $work->id)->delete();
+            $work->delete();
+        }
+
+        $approval = \App\Models\Approval::find($id);
+        if ($approval) {
+            \App\Models\ApprovalStage::where('approval_id', $id)->delete();
+            \App\Models\ApprovalHistory::where('approval_id', $id)->delete();
+            \App\Models\ApprovalAttachment::where('approval_id', $id)->delete();
+            $approval->delete();
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => "Pekerjaan konstruksi {$id} berhasil dihapus permanen.",
         ]);
     }
 }

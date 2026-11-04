@@ -18,16 +18,19 @@ Route::post('/approvals/test-email', [ApprovalController::class, 'testEmail']);
 Route::post('/approvals/request-deletion', [ApprovalController::class, 'requestDeletion']);
 Route::post('/approvals/request-revision', [ApprovalController::class, 'requestRevision']);
 Route::post('/approvals/{id}/decide', [ApprovalController::class, 'decide']);
+Route::post('/approvals/{id}/resubmit', [ApprovalController::class, 'resubmit']);
 Route::delete('/approvals/{id}', [ApprovalController::class, 'destroy']);
 
 Route::get('/construction-works',  [ConstructionController::class, 'index']);
 Route::post('/construction-works', [ConstructionController::class, 'store']);
 Route::put('/construction-works/{id}', [ConstructionController::class, 'update']);
+Route::delete('/construction-works/{id}', [ConstructionController::class, 'destroy']);
 Route::post('/construction-works/weekly-progress', [ConstructionController::class, 'submitWeeklyProgress']);
 
 Route::get('/customer-projects',  [CustomerProjectController::class, 'index']);
 Route::post('/customer-projects', [CustomerProjectController::class, 'store']);
 Route::put('/customer-projects/{id}', [CustomerProjectController::class, 'update']);
+Route::delete('/customer-projects/{id}', [CustomerProjectController::class, 'destroy']);
 Route::post('/customer-projects/site-report', [CustomerProjectController::class, 'submitSiteReport']);
 
 Route::get('/legal-requests',  [LegalRequestController::class, 'index']);

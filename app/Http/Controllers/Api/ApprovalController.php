@@ -365,16 +365,17 @@ class ApprovalController extends Controller
                         }
                     } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
                         if ($targetId) {
-                            \App\Models\ConstructionWeeklyProgress::where('report_id', $targetId)->orWhere('id', $targetId)->delete();
+                            \App\Models\ConstructionScope::where('work_id', $targetId)->delete();
+                            \App\Models\ConstructionAttachment::where('work_id', $targetId)->delete();
+                            \App\Models\ConstructionWeeklyProgress::where('report_id', $targetId)->orWhere('id', $targetId)->orWhere('work_id', $targetId)->delete();
                             \App\Models\ConstructionWork::where('id', $targetId)->delete();
                         }
                     } elseif (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
                         if ($targetId) {
-                            \App\Models\CustomerProjectWeeklyProgress::where('project_id', $targetId)->delete();
+                            \App\Models\CustomerProjectAttachment::where('project_id', $targetId)->delete();
+                            \App\Models\CustomerProjectScope::where('project_id', $targetId)->delete();
+                            \App\Models\CustomerProjectWeeklyProgress::where('project_id', $targetId)->orWhere('id', $targetId)->delete();
                             \App\Models\CustomerProject::where('id', $targetId)->delete();
-                            if (is_numeric($targetId)) {
-                                \App\Models\CustomerProjectWeeklyProgress::where('id', $targetId)->delete();
-                            }
                         }
                     }
                 } catch (\Throwable $e) {
@@ -703,6 +704,7 @@ class ApprovalController extends Controller
                         }
                     } elseif (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
                         if ($targetId) {
+                            \App\Models\CustomerProjectWeeklyProgress::where('id', $targetId)->update(['status' => $origStatus]);
                             \App\Models\CustomerProject::where('id', $targetId)->update(['status' => $origStatus]);
                         }
                     }
@@ -771,6 +773,55 @@ class ApprovalController extends Controller
         return response()->json([
             'message' => "Pengajuan berhasil di-{$actionLabel}.",
             'item' => $this->formatItem($fresh)
+        ]);
+    }
+
+    public function resubmit(Request $request, $id)
+    {
+        $approval = Approval::with(['stages', 'attachments', 'history'])->find($id);
+        if (!$approval) {
+            return response()->json(['message' => 'Pengajuan tidak ditemukan.'], 404);
+        }
+
+        if ($approval->status !== 'Returned') {
+            return response()->json(['message' => 'Hanya pengajuan dengan status Returned yang dapat diajukan ulang.'], 422);
+        }
+
+        $validated = $request->validate([
+            'notes' => 'nullable|string',
+        ]);
+
+        $identifier = $request->header('X-User-Identifier');
+        $user = null;
+        if ($identifier) {
+            $user = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                ->first();
+        }
+
+        $actorName = $user ? $user->name : ($approval->submitted_by ?: 'Pengaju');
+        $actorRole = $user ? $user->role : 'Pengaju';
+
+        // Kembalikan status ke Waiting (atau In Review jika sudah melewati layer 1)
+        $approval->status = $approval->current_stage > 1 ? 'In Review' : 'Waiting';
+        $approval->save();
+
+        // Catat ke riwayat
+        \App\Models\ApprovalHistory::create([
+            'approval_id' => $approval->id,
+            'actor' => $actorName,
+            'role' => $actorRole,
+            'action' => 'Diajukan Ulang (Resubmitted)',
+            'note' => $validated['notes'] ?: 'Pengajuan telah direvisi dan diajukan ulang ke antrean approval.',
+            'at' => now()->translatedFormat('d M Y, H:i'),
+        ]);
+
+        // Notifikasi ke approver bertugas
+        \App\Services\ApprovalNotificationService::notifyPendingApprover($approval);
+
+        return response()->json([
+            'message' => 'Pengajuan berhasil direvisi dan diajukan ulang ke antrean approval.',
+            'item' => $this->formatItem($approval->fresh(['stages', 'attachments', 'history']))
         ]);
     }
 

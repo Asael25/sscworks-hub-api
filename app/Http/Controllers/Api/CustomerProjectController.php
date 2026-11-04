@@ -278,6 +278,23 @@ class CustomerProjectController extends Controller
         $submitterName = $submitterUser ? ($submitterUser->name ?: $submitterUser->username) : $pic;
         $submitterId = $submitterUser ? $submitterUser->identifier : ($identifier ?: strtolower(str_replace(' ', '', $pic)));
 
+        // Idempotency / proteksi spam-klik: jika ada submission dengan customer, nama proyek, dan unit yang sama dalam 15 detik terakhir
+        if (!$isDraft) {
+            $recent = CustomerProject::where('name', $name)
+                ->where('customer', $customer)
+                ->where('unit', $unit)
+                ->where('created_at', '>=', now()->subSeconds(15))
+                ->first();
+
+            if ($recent) {
+                return response()->json([
+                    'message' => 'Project customer ini baru saja diajukan.',
+                    'projectId' => $recent->id,
+                    'submittedAt' => $recent->created_at->toISOString(),
+                ], 200);
+            }
+        }
+
         $project = CustomerProject::create([
             'id'              => $projectId,
             'customer'        => $customer,
@@ -732,6 +749,30 @@ class CustomerProjectController extends Controller
             'success'    => true,
             'approvalId' => $approvalId,
             'message'    => 'Site report berhasil diajukan ke Approval Center.',
+        ]);
+    }
+
+    public function destroy($id)
+    {
+        $project = CustomerProject::find($id);
+        if ($project) {
+            CustomerProjectAttachment::where('project_id', $project->id)->delete();
+            \App\Models\CustomerProjectScope::where('project_id', $project->id)->delete();
+            \App\Models\CustomerProjectWeeklyProgress::where('project_id', $project->id)->delete();
+            $project->delete();
+        }
+
+        $approval = \App\Models\Approval::find($id);
+        if ($approval) {
+            \App\Models\ApprovalStage::where('approval_id', $id)->delete();
+            \App\Models\ApprovalHistory::where('approval_id', $id)->delete();
+            \App\Models\ApprovalAttachment::where('approval_id', $id)->delete();
+            $approval->delete();
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => "Proyek customer {$id} berhasil dihapus permanen.",
         ]);
     }
 }
