@@ -66,7 +66,9 @@ class WorkflowEngine
             if ($workflow->mode === 'Single') {
                 $applicable = $applicable->take(1);
             } else {
-                $applicable = $applicable->take(5);
+                // Batasi hingga maksimal 5 layer / stage level (bukan memotong jumlah approver)
+                $distinctLevels = $applicable->map(fn($s) => (int)($s->stage_level ?? $s->order ?? 1))->unique()->take(5);
+                $applicable = $applicable->filter(fn($s) => $distinctLevels->contains((int)($s->stage_level ?? $s->order ?? 1)));
             }
 
             $order = 1;
