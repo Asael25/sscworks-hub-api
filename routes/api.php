@@ -46,6 +46,8 @@ Route::post('/upload', [App\Http\Controllers\Api\FileController::class, 'upload'
 
 Route::get('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::class, 'index']);
 Route::post('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::class, 'store']);
+Route::delete('/activity-logs', [\App\Http\Controllers\Api\ActivityLogController::class, 'clearAll']);
+Route::post('/activity-logs/clear-all', [\App\Http\Controllers\Api\ActivityLogController::class, 'clearAll']);
 
 
 Route::get('/system-users', [\App\Http\Controllers\Api\SystemUserController::class, 'index']);
@@ -58,6 +60,8 @@ Route::get('/system-users/{id}/welcome-email-preview', [\App\Http\Controllers\Ap
 
 Route::get('/approval-workflows', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'index']);
 Route::post('/approval-workflows', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'store']);
+Route::delete('/approval-workflows', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'clearAll']);
+Route::post('/approval-workflows/clear-all', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'clearAll']);
 Route::put('/approval-workflows/{id}', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'update']);
 Route::delete('/approval-workflows/{id}', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'destroy']);
 Route::post('/approval-workflows/{id}/toggle-status', [\App\Http\Controllers\Api\ApprovalWorkflowController::class, 'toggleStatus']);

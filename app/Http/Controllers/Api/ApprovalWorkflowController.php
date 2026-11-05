@@ -182,8 +182,16 @@ class ApprovalWorkflowController extends Controller
             return response()->json(['message' => 'Approval workflow tidak ditemukan'], 404);
         }
 
+        ApprovalWorkflowStage::where('workflow_id', $id)->delete();
         $workflow->delete();
         return response()->json(['message' => 'Workflow berhasil dihapus']);
+    }
+
+    public function clearAll()
+    {
+        ApprovalWorkflowStage::query()->delete();
+        ApprovalWorkflow::query()->delete();
+        return response()->json(['message' => 'Seluruh konfigurasi approval workflow berhasil dikosongkan.']);
     }
 
     public function toggleStatus($id)
@@ -288,7 +296,9 @@ class ApprovalWorkflowController extends Controller
                 if ($workflow->mode === 'Single') {
                     $applicableStages = $applicableStages->take(1);
                 } else {
-                    $applicableStages = $applicableStages->take(5);
+                    // Batasi hingga maksimal 5 layer / stage level (bukan memotong jumlah approver)
+                    $distinctLevels = $applicableStages->map(fn($s) => (int)($s->stage_level ?? $s->order ?? 1))->unique()->take(5);
+                    $applicableStages = $applicableStages->filter(fn($s) => $distinctLevels->contains((int)($s->stage_level ?? $s->order ?? 1)));
                 }
 
                 if ($applicableStages->isEmpty()) {

@@ -11,11 +11,6 @@ class ActivityLogController extends Controller
 {
     public function index(Request $request)
     {
-        // Seed default seed logs if table is completely empty
-        if (ActivityLog::count() === 0) {
-            $this->seedInitialLogs();
-        }
-
         $query = ActivityLog::query();
 
         if ($request->has('module') && $request->module !== 'ALL' && !empty($request->module)) {
@@ -71,6 +66,12 @@ class ActivityLogController extends Controller
         ]);
 
         return response()->json($log->toFrontendFormat(), 201);
+    }
+
+    public function clearAll()
+    {
+        ActivityLog::query()->delete();
+        return response()->json(['message' => 'Seluruh log aktivitas berhasil dikosongkan.']);
     }
 
     private function seedInitialLogs()
