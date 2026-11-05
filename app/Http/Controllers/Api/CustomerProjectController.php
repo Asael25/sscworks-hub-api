@@ -23,81 +23,96 @@ class CustomerProjectController extends Controller
 {
     public function index(Request $request)
     {
-        $query = CustomerProject::with(['scopes', 'weeklyProgresses', 'issues', 'photos', 'approvals', 'attachments', 'addenda'])
-            ->orderBy('created_at', 'desc');
+        try {
+            $relations = ['scopes', 'weeklyProgresses', 'issues', 'photos', 'approvals', 'attachments'];
+            if (\Illuminate\Support\Facades\Schema::hasTable('contract_addenda')) {
+                $relations[] = 'addenda';
+            }
+            $query = CustomerProject::with($relations)
+                ->orderBy('created_at', 'desc');
 
-        $identifier = $request->header('X-User-Identifier');
-        if ($identifier) {
-            $user = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
-                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
-                ->first();
-            if ($user) {
-                $additional = is_array($user->additional_units)
-                    ? $user->additional_units
-                    : json_decode($user->additional_units ?? '[]', true);
+            $identifier = $request->header('X-User-Identifier');
+            if ($identifier) {
+                $user = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                    ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                    ->first();
+                if ($user) {
+                    $additional = is_array($user->additional_units)
+                        ? $user->additional_units
+                        : json_decode($user->additional_units ?? '[]', true);
 
-                $isMultiUnitAdmin = in_array($user->role, ['Super Admin', 'Admin Super'])
-                    || strtolower($user->identifier) === 'rudi@sscworks.com'
-                    || strtolower($user->username ?? '') === 'rudi'
-                    || (is_array($additional) && in_array('*', $additional));
+                    $isMultiUnitAdmin = in_array($user->role, ['Super Admin', 'Admin Super'])
+                        || strtolower($user->identifier) === 'rudi@sscworks.com'
+                        || strtolower($user->username ?? '') === 'rudi'
+                        || (is_array($additional) && in_array('*', $additional));
 
-                if (!$isMultiUnitAdmin) {
-                    $allowedUnits = array_filter(array_merge([$user->primary_unit], $additional ?? []));
-                    
-                    $query->where(function ($q) use ($allowedUnits) {
-                        foreach ($allowedUnits as $unit) {
-                            if (!$unit || $unit === '*') continue;
-                            $q->orWhere('unit', $unit);
-                            
-                            $dashHyphen = str_replace('—', '-', $unit);
-                            $dashEm = str_replace('-', '—', $unit);
-                            $q->orWhere('unit', $dashHyphen)
-                              ->orWhere('unit', $dashEm);
-                              
-                            $clean = trim(str_replace(['SSC', 'Works', 'Cabang', '—', '-'], ' ', $unit));
-                            if (!empty($clean)) {
-                                $q->orWhere('unit', 'LIKE', '%' . $clean . '%');
+                    if (!$isMultiUnitAdmin) {
+                        $allowedUnits = array_filter(array_merge([$user->primary_unit], $additional ?? []));
+                        
+                        $query->where(function ($q) use ($allowedUnits) {
+                            foreach ($allowedUnits as $unit) {
+                                if (!$unit || $unit === '*') continue;
+                                $q->orWhere('unit', $unit);
+                                
+                                $dashHyphen = str_replace('—', '-', $unit);
+                                $dashEm = str_replace('-', '—', $unit);
+                                $q->orWhere('unit', $dashHyphen)
+                                  ->orWhere('unit', $dashEm);
+                                  
+                                $clean = trim(str_replace(['SSC', 'Works', 'Cabang', '—', '-'], ' ', $unit));
+                                if (!empty($clean)) {
+                                    $q->orWhere('unit', 'LIKE', '%' . $clean . '%');
+                                }
                             }
+                        });
+                    }
+                }
+            }
+
+            // Auto-purge any customer projects whose deletion request has already been Approved
+            try {
+                $approvedDeletions = Approval::where('status', 'Approved')
+                    ->where(function ($q) {
+                        $q->where('id', 'LIKE', 'DEL-%')
+                          ->orWhere('request', 'LIKE', 'Permohonan Hapus:%')
+                          ->orWhere('notes', 'LIKE', '%"isDeletionRequest":true%');
+                    })
+                    ->where(function ($q) {
+                        $q->whereIn('module', ['Project Customer', 'Customer Project'])
+                          ->orWhereNull('module');
+                    })
+                    ->get();
+                foreach ($approvedDeletions as $del) {
+                    $notesData = [];
+                    if (!empty($del->notes) && str_starts_with(trim($del->notes), '{')) {
+                        $notesData = json_decode($del->notes, true) ?: [];
+                    }
+                    $targetId = $notesData['targetItemId'] ?? null;
+                    if (!$targetId) {
+                        if (preg_match('/\((CPR-[^\)]+)\)/i', $del->request, $m)) {
+                            $targetId = trim($m[1]);
+                        } elseif (preg_match('/Permohonan Hapus\s+(CPR-[^:]+):/i', $del->summary, $m)) {
+                            $targetId = trim($m[1]);
                         }
-                    });
+                    }
+                    if ($targetId) {
+                        CustomerProjectAttachment::where('project_id', $targetId)->delete();
+                        CustomerProjectScope::where('project_id', $targetId)->delete();
+                        CustomerProjectWeeklyProgress::where('project_id', $targetId)->delete();
+                        CustomerProjectIssue::where('project_id', $targetId)->delete();
+                        CustomerProjectPhoto::where('project_id', $targetId)->delete();
+                        CustomerProjectApproval::where('project_id', $targetId)->delete();
+                        if (\Illuminate\Support\Facades\Schema::hasTable('contract_addenda')) {
+                            ContractAddendum::where('target_item_id', $targetId)->delete();
+                        }
+                        CustomerProject::where('id', $targetId)->delete();
+                    }
                 }
+            } catch (\Throwable $purgeEx) {
+                \Log::warning("CustomerProject auto-purge warning: " . $purgeEx->getMessage());
             }
-        }
 
-        // Auto-purge any customer projects whose deletion request has already been Approved
-        $approvedDeletions = Approval::where('status', 'Approved')
-            ->where(function ($q) {
-                $q->where('id', 'LIKE', 'DEL-%')
-                  ->orWhere('request', 'LIKE', 'Permohonan Hapus:%')
-                  ->orWhere('notes', 'LIKE', '%"isDeletionRequest":true%');
-            })
-            ->get();
-        foreach ($approvedDeletions as $del) {
-            $notesData = [];
-            if (!empty($del->notes) && str_starts_with(trim($del->notes), '{')) {
-                $notesData = json_decode($del->notes, true) ?: [];
-            }
-            $targetId = $notesData['targetItemId'] ?? null;
-            if (!$targetId) {
-                if (!empty($del->request) && preg_match('/\(([A-Z0-9-]+)\)/i', $del->request, $m)) {
-                    $targetId = trim($m[1]);
-                } elseif (!empty($del->summary) && preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary, $m)) {
-                    $targetId = trim($m[1]);
-                }
-            }
-            if ($targetId) {
-                CustomerProjectAttachment::where('project_id', $targetId)->delete();
-                CustomerProjectScope::where('project_id', $targetId)->delete();
-                CustomerProjectWeeklyProgress::where('project_id', $targetId)->orWhere('id', $targetId)->delete();
-                CustomerProjectIssue::where('project_id', $targetId)->delete();
-                CustomerProjectPhoto::where('project_id', $targetId)->delete();
-                CustomerProjectApproval::where('project_id', $targetId)->delete();
-                ContractAddendum::where('target_item_id', $targetId)->delete();
-                CustomerProject::where('id', $targetId)->delete();
-            }
-        }
-
-        $projects = $query->get();
+            $projects = $query->get();
         $projectIds = $projects->pluck('id')->toArray();
         $approvalMap = Approval::whereIn('id', $projectIds)->get()->keyBy('id');
 
@@ -247,7 +262,7 @@ class CustomerProjectController extends Controller
                             ];
                         })->values();
                     })(),
-                'addenda' => $item->addenda ? $item->addenda->map(function ($ad) {
+                'addenda' => ($item->relationLoaded('addenda') && $item->addenda) ? $item->addenda->map(function ($ad) {
                     return [
                         'id' => $ad->addendum_id,
                         'addendumNumber' => (int) $ad->addendum_number,
@@ -266,12 +281,21 @@ class CustomerProjectController extends Controller
                         'rejectionReason' => $ad->rejection_reason,
                     ];
                 }) : [],
-                'hasPendingRevision' => $item->addenda ? $item->addenda->where('status', 'Waiting Approval')->count() > 0 : false,
+                'hasPendingRevision' => ($item->relationLoaded('addenda') && $item->addenda) ? $item->addenda->where('status', 'Waiting Approval')->count() > 0 : false,
             ];
         });
 
         return response()->json($formatted);
+    } catch (\Throwable $e) {
+        \Log::error("CustomerProjectController@index error: " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
+        return response()->json([
+            'error' => true,
+            'message' => $e->getMessage(),
+            'file' => basename($e->getFile()),
+            'line' => $e->getLine(),
+        ], 500);
     }
+}
 
     public function store(Request $request)
     {
