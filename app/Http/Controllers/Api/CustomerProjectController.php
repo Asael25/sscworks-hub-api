@@ -854,17 +854,6 @@ class CustomerProjectController extends Controller
             $approval->delete();
         }
 
-        // Also clean up any pending/approved DEL- tickets associated with this project
-        \App\Models\Approval::where(function ($q) use ($id) {
-            $q->where('id', 'LIKE', 'DEL-%')
-              ->orWhere('request', 'LIKE', 'Permohonan Hapus:%')
-              ->orWhere('notes', 'LIKE', '%"isDeletionRequest":true%');
-        })->where(function ($q) use ($id) {
-            $q->where('notes', 'LIKE', '%"' . $id . '"%')
-              ->orWhere('request', 'LIKE', "%{$id}%")
-              ->orWhere('summary', 'LIKE', "%{$id}%");
-        })->delete();
-
         return response()->json([
             'ok' => true,
             'message' => "Proyek customer {$id} berhasil dihapus permanen.",

@@ -132,7 +132,18 @@ class ApprovalController extends Controller
                 if (!$isMultiUnitAdmin) {
                     $allowedUnits = array_filter(array_merge([$user->primary_unit], $additional ?? []));
                     
-                    $query->where(function ($q) use ($allowedUnits) {
+                    $query->where(function ($q) use ($allowedUnits, $user) {
+                        // User can ALWAYS view items they submitted themselves
+                        if (!empty($user->name)) {
+                            $q->orWhere('submitted_by', $user->name);
+                        }
+                        if (!empty($user->username)) {
+                            $q->orWhere('submitted_by_id', $user->username);
+                        }
+                        if (!empty($user->identifier)) {
+                            $q->orWhere('submitted_by_id', $user->identifier);
+                        }
+
                         foreach ($allowedUnits as $unit) {
                             if (!$unit || $unit === '*') continue;
                             $q->orWhere('unit', $unit);
@@ -361,7 +372,9 @@ class ApprovalController extends Controller
                 if ($targetId) {
                     try {
                         // Remove original approval ticket if exists so it disappears from all approvers' queues
+                        // DEL- tickets are audit history and must NEVER be deleted
                         \App\Models\Approval::where('id', '!=', $approval->id)
+                            ->where('id', 'NOT LIKE', 'DEL-%')
                             ->where(function ($q) use ($targetId) {
                                 $q->where('id', $targetId)
                                     ->orWhere('request', 'LIKE', "%{$targetId}%")
@@ -402,6 +415,13 @@ class ApprovalController extends Controller
 
                 $approval->status = 'Approved';
                 $approval->save();
+
+                \App\Models\ApprovalStage::where('approval_id', $approval->id)->update([
+                    'status'      => 'Approved',
+                    'approver'    => $actorName,
+                    'approved_by' => $actorName,
+                    'approved_at' => now()->translatedFormat('d M Y, H:i'),
+                ]);
 
                 \App\Models\ApprovalHistory::create([
                     'approval_id' => $approval->id,
@@ -691,6 +711,13 @@ class ApprovalController extends Controller
         } elseif ($decision === 'return') {
             $actionLabel = 'Returned';
             $approval->status = 'Returned';
+            if ($matchedStage) {
+                $matchedStage->update([
+                    'status'      => 'Returned',
+                    'approved_by' => $actorName,
+                    'approved_at' => date('d M Y, H:i'),
+                ]);
+            }
             if (in_array($approval->module, ['Legal Operations', 'Legal'])) {
                 $legalReq = \App\Models\LegalRequest::where('request_code', $approval->id)->orWhere('id', $approval->id)->first();
                 if ($legalReq) {
@@ -729,6 +756,12 @@ class ApprovalController extends Controller
             $actionLabel = 'Rejected';
             $approval->status = 'Rejected';
             if ($isDeletion) {
+                \App\Models\ApprovalStage::where('approval_id', $approval->id)->update([
+                    'status'      => 'Rejected',
+                    'approver'    => $actorName,
+                    'approved_by' => $actorName,
+                    'approved_at' => now()->translatedFormat('d M Y, H:i'),
+                ]);
                 $targetId = $notesData['targetItemId'] ?? null;
                 if (!$targetId) {
                     if (!empty($approval->request) && preg_match('/\(([A-Z0-9-]+)\)/i', $approval->request, $m)) {
@@ -793,6 +826,14 @@ class ApprovalController extends Controller
                         'rejection_reason' => $reason ?: 'Ditolak oleh Approver',
                     ]);
                 }
+            }
+
+            if (!$isDeletion && $matchedStage) {
+                $matchedStage->update([
+                    'status'      => 'Rejected',
+                    'approved_by' => $actorName,
+                    'approved_at' => date('d M Y, H:i'),
+                ]);
             }
         }
 
@@ -887,9 +928,18 @@ class ApprovalController extends Controller
         ]);
 
         $delId = 'DEL-' . date('Ymd') . '-' . substr(strtoupper(uniqid()), -4);
-        $unit = $validated['unit'] ?? 'Head Office';
-        $pic = $validated['submittedBy'] ?? 'User';
-        $picId = strtolower(str_replace(' ', '', $pic));
+        
+        $identifier = $request->header('X-User-Identifier');
+        $user = null;
+        if ($identifier) {
+            $user = \App\Models\User::whereRaw('LOWER(identifier) = ?', [strtolower($identifier)])
+                ->orWhereRaw('LOWER(username) = ?', [strtolower($identifier)])
+                ->first();
+        }
+
+        $pic = $validated['submittedBy'] ?? ($user ? $user->name : 'User');
+        $picId = $user ? ($user->username ?? $user->identifier) : strtolower(str_replace(' ', '', $pic));
+        $unit = $validated['unit'] ?? ($user ? $user->primary_unit : 'Head Office');
 
         $notesPayload = json_encode([
             'isDeletionRequest' => true,
