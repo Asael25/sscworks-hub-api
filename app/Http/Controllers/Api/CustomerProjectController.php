@@ -4,7 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CustomerProject;
+use App\Models\CustomerProjectScope;
 use App\Models\CustomerProjectAttachment;
+use App\Models\CustomerProjectWeeklyProgress;
+use App\Models\CustomerProjectIssue;
+use App\Models\CustomerProjectPhoto;
+use App\Models\CustomerProjectApproval;
+use App\Models\ContractAddendum;
 use App\Models\Approval;
 use App\Models\ApprovalStage;
 use App\Models\ApprovalHistory;
@@ -73,9 +79,9 @@ class CustomerProjectController extends Controller
             }
             $targetId = $notesData['targetItemId'] ?? null;
             if (!$targetId) {
-                if (preg_match('/\(([A-Z0-9-]+)\)/i', $del->request, $m)) {
+                if (!empty($del->request) && preg_match('/\(([A-Z0-9-]+)\)/i', $del->request, $m)) {
                     $targetId = trim($m[1]);
-                } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary, $m)) {
+                } elseif (!empty($del->summary) && preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary, $m)) {
                     $targetId = trim($m[1]);
                 }
             }

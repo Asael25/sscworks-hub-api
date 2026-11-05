@@ -6,6 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\ConstructionWork;
 use App\Models\ConstructionScope;
 use App\Models\ConstructionAttachment;
+use App\Models\ConstructionWeeklyProgress;
+use App\Models\ConstructionIssue;
+use App\Models\ConstructionPhoto;
+use App\Models\ConstructionApproval;
+use App\Models\ContractAddendum;
 use App\Models\Approval;
 use App\Models\ApprovalStage;
 use App\Models\ApprovalHistory;
@@ -75,9 +80,9 @@ class ConstructionController extends Controller
             }
             $targetId = $notesData['targetItemId'] ?? null;
             if (!$targetId) {
-                if (preg_match('/\(([A-Z0-9-]+)\)/i', $del->request, $m)) {
+                if (!empty($del->request) && preg_match('/\(([A-Z0-9-]+)\)/i', $del->request, $m)) {
                     $targetId = trim($m[1]);
-                } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary, $m)) {
+                } elseif (!empty($del->summary) && preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary, $m)) {
                     $targetId = trim($m[1]);
                 }
             }
@@ -115,9 +120,9 @@ class ConstructionController extends Controller
             }
             $targetId = $notesData['targetItemId'] ?? null;
             if (!$targetId) {
-                if (preg_match('/\(([A-Z0-9-]+)\)/i', $del->request, $m)) {
+                if (!empty($del->request) && preg_match('/\(([A-Z0-9-]+)\)/i', $del->request, $m)) {
                     $targetId = trim($m[1]);
-                } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary, $m)) {
+                } elseif (!empty($del->summary) && preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary, $m)) {
                     $targetId = trim($m[1]);
                 }
             }

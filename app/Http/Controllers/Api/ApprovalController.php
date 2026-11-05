@@ -23,9 +23,9 @@ class ApprovalController extends Controller
 
         $targetItemId = $notesData['targetItemId'] ?? null;
         if (!$targetItemId) {
-            if (preg_match('/\(([A-Z0-9-]+)\)/i', $item->request, $m)) {
+            if (!empty($item->request) && preg_match('/\(([A-Z0-9-]+)\)/i', $item->request, $m)) {
                 $targetItemId = trim($m[1]);
-            } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $item->summary, $m)) {
+            } elseif (!empty($item->summary) && preg_match('/Permohonan Hapus\s+([^:]+):/i', $item->summary, $m)) {
                 $targetItemId = trim($m[1]);
             }
         }
@@ -352,9 +352,9 @@ class ApprovalController extends Controller
             if ($isDeletion) {
                 $targetId = $notesData['targetItemId'] ?? null;
                 if (!$targetId) {
-                    if (preg_match('/\(([A-Z0-9-]+)\)/i', $approval->request, $m)) {
+                    if (!empty($approval->request) && preg_match('/\(([A-Z0-9-]+)\)/i', $approval->request, $m)) {
                         $targetId = trim($m[1]);
-                    } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $approval->summary, $m)) {
+                    } elseif (!empty($approval->summary) && preg_match('/Permohonan Hapus\s+([^:]+):/i', $approval->summary, $m)) {
                         $targetId = trim($m[1]);
                     }
                 }
@@ -731,9 +731,9 @@ class ApprovalController extends Controller
             if ($isDeletion) {
                 $targetId = $notesData['targetItemId'] ?? null;
                 if (!$targetId) {
-                    if (preg_match('/\(([A-Z0-9-]+)\)/i', $approval->request, $m)) {
+                    if (!empty($approval->request) && preg_match('/\(([A-Z0-9-]+)\)/i', $approval->request, $m)) {
                         $targetId = trim($m[1]);
-                    } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $approval->summary, $m)) {
+                    } elseif (!empty($approval->summary) && preg_match('/Permohonan Hapus\s+([^:]+):/i', $approval->summary, $m)) {
                         $targetId = trim($m[1]);
                     }
                 }
