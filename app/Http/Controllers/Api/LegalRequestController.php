@@ -18,8 +18,9 @@ class LegalRequestController extends Controller
 {
     public function index(Request $request)
     {
-        $query = LegalRequest::with(['attachments', 'timeline', 'notes', 'outputDocuments', 'approvals'])
-            ->orderBy('submitted_at', 'desc');
+        try {
+            $query = LegalRequest::with(['attachments', 'timeline', 'notes', 'outputDocuments', 'approvals'])
+                ->orderBy('submitted_at', 'desc');
 
         $identifier = $request->header('X-User-Identifier');
         if ($identifier) {
@@ -65,7 +66,39 @@ class LegalRequestController extends Controller
 
         $requests = $query->get();
 
-        $formatted = $requests->map(function ($item) {
+        // Check active pending deletion approvals for legal requests
+        $activeDeletions = Approval::whereIn('status', ['Waiting', 'In Review'])
+            ->where(function ($q) {
+                $q->where('id', 'LIKE', 'DEL-%')
+                  ->orWhere('is_deletion_request', 1)
+                  ->orWhere('request', 'LIKE', 'Permohonan Hapus%');
+            })
+            ->get();
+
+        $deletionMap = [];
+        foreach ($activeDeletions as $del) {
+            $notesData = [];
+            if (!empty($del->notes) && str_starts_with(trim($del->notes), '{')) {
+                $notesData = json_decode($del->notes, true) ?: [];
+            }
+            $targetId = $notesData['targetItemId'] ?? null;
+            if (!$targetId) {
+                if (preg_match('/\(([A-Z0-9-]+)\)/i', $del->request ?? '', $m)) {
+                    $targetId = trim($m[1]);
+                } elseif (preg_match('/Permohonan Hapus\s+([^:]+):/i', $del->summary ?? '', $m)) {
+                    $targetId = trim($m[1]);
+                }
+            }
+            if ($targetId) {
+                $deletionMap[$targetId] = [
+                    'status' => 'pending',
+                    'reason' => $notesData['deletionReason'] ?? ($del->summary ?? 'Menunggu persetujuan Super Admin'),
+                ];
+            }
+        }
+
+        $formatted = $requests->map(function ($item) use ($deletionMap) {
+            $delInfo = $deletionMap[$item->id] ?? ($deletionMap[$item->request_code] ?? null);
             return [
                 'id' => (string) $item->id,
                 'request_code' => $item->request_code,
@@ -79,6 +112,8 @@ class LegalRequestController extends Controller
                 'target_date' => $item->target_date,
                 'current_stage' => $item->current_stage,
                 'status' => $item->status,
+                'deletion_status' => $delInfo ? $delInfo['status'] : null,
+                'deletion_reason' => $delInfo ? $delInfo['reason'] : null,
                 'description' => $item->description ?? '',
                 'purpose' => $item->purpose ?? '',
                 'notes_text' => $item->notes_text ?? '',
@@ -143,6 +178,12 @@ class LegalRequestController extends Controller
         });
 
         return response()->json($formatted);
+        } catch (\Throwable $e) {
+            \Log::error("Error in LegalRequestController@index: " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json([], 200);
+        }
     }
 
     public function store(Request $request)

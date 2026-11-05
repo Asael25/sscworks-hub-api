@@ -173,10 +173,11 @@ class ApprovalController extends Controller
 
     public function decide(Request $request, $id)
     {
-        $approval = Approval::with(['stages', 'attachments', 'history'])->find($id);
-        if (!$approval) {
-            return response()->json(['message' => 'Pengajuan tidak ditemukan.'], 404);
-        }
+        try {
+            $approval = Approval::with(['stages', 'attachments', 'history'])->find($id);
+            if (!$approval) {
+                return response()->json(['message' => 'Pengajuan tidak ditemukan.'], 404);
+            }
 
         $validated = $request->validate([
             'decision' => 'required|in:approve,return,reject',
@@ -387,25 +388,39 @@ class ApprovalController extends Controller
 
                     try {
                         if (in_array($approval->module, ['Legal', 'Legal Operations'])) {
-                            \App\Models\LegalAttachment::where('request_id', $targetId)->delete();
+                            if (\Illuminate\Support\Facades\Schema::hasTable('legal_attachments')) {
+                                \App\Models\LegalAttachment::where('request_id', $targetId)->delete();
+                            }
                             \App\Models\LegalRequest::where('id', $targetId)->orWhere('request_code', $targetId)->delete();
                         } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
                             \App\Models\ConstructionScope::where('work_id', $targetId)->delete();
                             \App\Models\ConstructionAttachment::where('work_id', $targetId)->delete();
-                            \App\Models\ConstructionWeeklyProgress::where('report_id', $targetId)->orWhere('id', $targetId)->orWhere('work_id', $targetId)->delete();
+                            if (is_numeric($targetId)) {
+                                \App\Models\ConstructionWeeklyProgress::where('report_id', $targetId)->orWhere('id', $targetId)->orWhere('work_id', $targetId)->delete();
+                            } else {
+                                \App\Models\ConstructionWeeklyProgress::where('report_id', $targetId)->orWhere('work_id', $targetId)->delete();
+                            }
                             \App\Models\ConstructionIssue::where('work_id', $targetId)->delete();
                             \App\Models\ConstructionPhoto::where('work_id', $targetId)->delete();
                             \App\Models\ConstructionApproval::where('work_id', $targetId)->delete();
-                            \App\Models\ContractAddendum::where('target_item_id', $targetId)->delete();
+                            if (\Illuminate\Support\Facades\Schema::hasTable('contract_addenda')) {
+                                \App\Models\ContractAddendum::where('target_item_id', $targetId)->delete();
+                            }
                             \App\Models\ConstructionWork::where('id', $targetId)->delete();
                         } elseif (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
                             \App\Models\CustomerProjectAttachment::where('project_id', $targetId)->delete();
                             \App\Models\CustomerProjectScope::where('project_id', $targetId)->delete();
-                            \App\Models\CustomerProjectWeeklyProgress::where('project_id', $targetId)->orWhere('id', $targetId)->delete();
+                            if (is_numeric($targetId)) {
+                                \App\Models\CustomerProjectWeeklyProgress::where('project_id', $targetId)->orWhere('id', $targetId)->delete();
+                            } else {
+                                \App\Models\CustomerProjectWeeklyProgress::where('project_id', $targetId)->delete();
+                            }
                             \App\Models\CustomerProjectIssue::where('project_id', $targetId)->delete();
                             \App\Models\CustomerProjectPhoto::where('project_id', $targetId)->delete();
                             \App\Models\CustomerProjectApproval::where('project_id', $targetId)->delete();
-                            \App\Models\ContractAddendum::where('target_item_id', $targetId)->delete();
+                            if (\Illuminate\Support\Facades\Schema::hasTable('contract_addenda')) {
+                                \App\Models\ContractAddendum::where('target_item_id', $targetId)->delete();
+                            }
                             \App\Models\CustomerProject::where('id', $targetId)->delete();
                         }
                     } catch (\Throwable $e) {
@@ -756,12 +771,6 @@ class ApprovalController extends Controller
             $actionLabel = 'Rejected';
             $approval->status = 'Rejected';
             if ($isDeletion) {
-                \App\Models\ApprovalStage::where('approval_id', $approval->id)->update([
-                    'status'      => 'Rejected',
-                    'approver'    => $actorName,
-                    'approved_by' => $actorName,
-                    'approved_at' => now()->translatedFormat('d M Y, H:i'),
-                ]);
                 $targetId = $notesData['targetItemId'] ?? null;
                 if (!$targetId) {
                     if (!empty($approval->request) && preg_match('/\(([A-Z0-9-]+)\)/i', $approval->request, $m)) {
@@ -770,29 +779,78 @@ class ApprovalController extends Controller
                         $targetId = trim($m[1]);
                     }
                 }
-                $origStatus = $notesData['originalStatus'] ?? 'On Schedule';
+
+                $approval->save();
+
+                // Update stages with safe fallback if database enum does not yet allow 'Rejected'
                 try {
-                    if (in_array($approval->module, ['Legal', 'Legal Operations'])) {
-                        if ($targetId) {
+                    \App\Models\ApprovalStage::where('approval_id', $approval->id)->update([
+                        'status'      => 'Rejected',
+                        'approver'    => $actorName,
+                        'approved_by' => $actorName,
+                        'approved_at' => now()->translatedFormat('d M Y, H:i'),
+                    ]);
+                } catch (\Throwable $e) {
+                    try {
+                        \App\Models\ApprovalStage::where('approval_id', $approval->id)->update([
+                            'status'      => 'Returned',
+                            'approver'    => $actorName,
+                            'approved_by' => $actorName,
+                            'approved_at' => now()->translatedFormat('d M Y, H:i'),
+                        ]);
+                    } catch (\Throwable $e2) {
+                        \Log::warning("Could not update approval stage on deletion reject: " . $e2->getMessage());
+                    }
+                }
+
+                // Restore original status safely per module
+                $origStatus = $notesData['originalStatus'] ?? 'On Schedule';
+                if ($targetId) {
+                    try {
+                        if (in_array($approval->module, ['Legal', 'Legal Operations'])) {
                             $validLegalStatus = in_array(strtolower($origStatus), ['draft', 'waiting_review', 'in_process', 'completed', 'rejected'])
                                 ? strtolower($origStatus)
                                 : 'waiting_review';
-                            \App\Models\LegalRequest::where('id', $targetId)->orWhere('request_code', $targetId)->update(['status' => $validLegalStatus]);
+                            \App\Models\LegalRequest::where('id', $targetId)
+                                ->orWhere('request_code', $targetId)
+                                ->update(['status' => $validLegalStatus]);
+                        } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
+                            if (str_starts_with($targetId, 'WPR-') || str_starts_with($targetId, 'PR-')) {
+                                \App\Models\ConstructionWeeklyProgress::where('report_id', $targetId)->update(['status' => $origStatus]);
+                            } else {
+                                \App\Models\ConstructionWork::where('id', $targetId)->update(['status' => $origStatus]);
+                            }
+                        } elseif (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
+                            if (!str_starts_with($targetId, 'CSR-') && !str_starts_with($targetId, 'REP-')) {
+                                \App\Models\CustomerProject::where('id', $targetId)->update(['status' => $origStatus]);
+                            }
                         }
-                    } elseif (in_array($approval->module, ['Internal Construction', 'Konstruksi Internal', 'Construction'])) {
-                        if ($targetId) {
-                            \App\Models\ConstructionWeeklyProgress::where('report_id', $targetId)->orWhere('id', $targetId)->update(['status' => $origStatus]);
-                            \App\Models\ConstructionWork::where('id', $targetId)->update(['status' => $origStatus]);
-                        }
-                    } elseif (in_array($approval->module, ['Project Customer', 'Customer Project'])) {
-                        if ($targetId) {
-                            \App\Models\CustomerProjectWeeklyProgress::where('id', $targetId)->update(['status' => $origStatus]);
-                            \App\Models\CustomerProject::where('id', $targetId)->update(['status' => $origStatus]);
-                        }
+                    } catch (\Throwable $e) {
+                        \Log::error("Error resetting status on deletion reject: " . $e->getMessage());
                     }
-                } catch (\Throwable $e) {
-                    \Log::error("Error resetting status on deletion reject: " . $e->getMessage());
                 }
+
+                \App\Models\ApprovalHistory::create([
+                    'approval_id' => $approval->id,
+                    'actor'       => $actorName,
+                    'role'        => $actorRole,
+                    'action'      => 'Rejected',
+                    'note'        => $reason ?: 'Permohonan hapus ditolak oleh Super Admin.',
+                    'at'          => now()->translatedFormat('d M Y, H:i'),
+                ]);
+
+                \App\Services\ApprovalNotificationService::notifyDecision(
+                    $approval->fresh(['stages', 'attachments', 'history']),
+                    'reject',
+                    $reason,
+                    $actorName,
+                    $actorRole
+                );
+
+                return response()->json([
+                    'message' => "Permohonan hapus ditolak dan status data terkait ({$targetId}) berhasil dipulihkan.",
+                    'item'    => $this->formatItem($approval->fresh(['stages', 'attachments', 'history'])),
+                ]);
             } elseif (str_starts_with($approval->id, 'WPR-')) {
                 \App\Models\ConstructionWeeklyProgress::where('report_id', $approval->id)->update(['status' => 'Rejected']);
             } elseif (in_array($approval->module, ['Legal Operations', 'Legal']) && !$isDeletion) {
@@ -813,27 +871,39 @@ class ApprovalController extends Controller
             if (!empty($notesData['isContractRevision']) || str_starts_with($approval->request, 'Revisi Kontrak:')) {
                 $rev = $notesData['contractRevision'] ?? [];
                 $targetId = $rev['itemId'] ?? ($notesData['targetItemId'] ?? null);
-                $addendum = \App\Models\ContractAddendum::where('approval_id', $approval->id)
-                    ->orWhere(function ($q) use ($targetId) {
-                        if ($targetId) {
-                            $q->where('target_item_id', $targetId)->where('status', 'Waiting Approval');
-                        }
-                    })
-                    ->first();
-                if ($addendum) {
-                    $addendum->update([
-                        'status' => 'Rejected',
-                        'rejection_reason' => $reason ?: 'Ditolak oleh Approver',
-                    ]);
+                if (\Illuminate\Support\Facades\Schema::hasTable('contract_addenda')) {
+                    $addendum = \App\Models\ContractAddendum::where('approval_id', $approval->id)
+                        ->orWhere(function ($q) use ($targetId) {
+                            if ($targetId) {
+                                $q->where('target_item_id', $targetId)->where('status', 'Waiting Approval');
+                            }
+                        })
+                        ->first();
+                    if ($addendum) {
+                        $addendum->update([
+                            'status' => 'Rejected',
+                            'rejection_reason' => $reason ?: 'Ditolak oleh Approver',
+                        ]);
+                    }
                 }
             }
 
             if (!$isDeletion && $matchedStage) {
-                $matchedStage->update([
-                    'status'      => 'Rejected',
-                    'approved_by' => $actorName,
-                    'approved_at' => date('d M Y, H:i'),
-                ]);
+                try {
+                    $matchedStage->update([
+                        'status'      => 'Rejected',
+                        'approved_by' => $actorName,
+                        'approved_at' => date('d M Y, H:i'),
+                    ]);
+                } catch (\Throwable $e) {
+                    try {
+                        $matchedStage->update([
+                            'status'      => 'Returned',
+                            'approved_by' => $actorName,
+                            'approved_at' => date('d M Y, H:i'),
+                        ]);
+                    } catch (\Throwable $e2) {}
+                }
             }
         }
 
@@ -864,6 +934,14 @@ class ApprovalController extends Controller
             'message' => "Pengajuan berhasil di-{$actionLabel}.",
             'item' => $this->formatItem($fresh)
         ]);
+        } catch (\Throwable $e) {
+            \Log::error("Error deciding approval {$id}: " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'message' => 'Gagal memproses persetujuan di server: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     public function resubmit(Request $request, $id)
