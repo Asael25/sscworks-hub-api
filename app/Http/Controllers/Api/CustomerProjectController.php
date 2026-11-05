@@ -333,11 +333,16 @@ class CustomerProjectController extends Controller
             'paymentTerm'    => 'nullable|string',
             'retention'      => 'nullable|string',
             'notes'          => 'nullable|string',
-            'attachments'    => 'nullable|array',
+            'attachments'    => 'required|array|min:1',
             'isDraft'        => 'nullable|boolean',
         ];
 
-        $validator = Validator::make($request->all(), $rules);
+        $messages = [
+            'attachments.required' => 'Dokumen pendukung (SPK / PO / Kontrak) wajib diunggah.',
+            'attachments.min'      => 'Dokumen pendukung (SPK / PO / Kontrak) wajib diunggah minimal 1 berkas.',
+        ];
+
+        $validator = Validator::make($request->all(), $rules, $messages);
 
         if ($validator->fails()) {
             return response()->json([
@@ -537,11 +542,16 @@ class CustomerProjectController extends Controller
             'paymentTerm'    => 'nullable|string',
             'retention'      => 'nullable|string',
             'notes'          => 'nullable|string',
-            'attachments'    => 'nullable|array',
+            'attachments'    => 'required|array|min:1',
             'isDraft'        => 'nullable|boolean',
         ];
 
-        $validator = Validator::make($request->all(), $rules);
+        $messages = [
+            'attachments.required' => 'Dokumen pendukung (SPK / PO / Kontrak) wajib diunggah.',
+            'attachments.min'      => 'Dokumen pendukung (SPK / PO / Kontrak) wajib diunggah minimal 1 berkas.',
+        ];
+
+        $validator = Validator::make($request->all(), $rules, $messages);
         if ($validator->fails()) {
             return response()->json([
                 'error'    => 'Validation error',
