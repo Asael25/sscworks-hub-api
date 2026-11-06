@@ -19,7 +19,23 @@ class LegalRequestController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = LegalRequest::with(['attachments', 'timeline', 'notes', 'outputDocuments', 'approvals'])
+            if (LegalRequest::count() === 0) {
+                try {
+                    \Artisan::call('db:seed', ['--class' => 'LegalRequestSeeder', '--force' => true]);
+                } catch (\Throwable $seedErr) {
+                    \Log::warning("Could not auto-seed LegalRequestSeeder: " . $seedErr->getMessage());
+                }
+            }
+
+            $relations = ['attachments', 'timeline', 'notes'];
+            if (\Illuminate\Support\Facades\Schema::hasTable('legal_output_documents')) {
+                $relations[] = 'outputDocuments';
+            }
+            if (\Illuminate\Support\Facades\Schema::hasTable('legal_approvals')) {
+                $relations[] = 'approvals';
+            }
+
+            $query = LegalRequest::with($relations)
                 ->orderBy('submitted_at', 'desc');
 
         $identifier = $request->header('X-User-Identifier');
@@ -70,8 +86,8 @@ class LegalRequestController extends Controller
         $activeDeletions = Approval::whereIn('status', ['Waiting', 'In Review'])
             ->where(function ($q) {
                 $q->where('id', 'LIKE', 'DEL-%')
-                  ->orWhere('is_deletion_request', 1)
-                  ->orWhere('request', 'LIKE', 'Permohonan Hapus%');
+                  ->orWhere('request', 'LIKE', 'Permohonan Hapus:%')
+                  ->orWhere('notes', 'LIKE', '%"isDeletionRequest":true%');
             })
             ->get();
 
@@ -119,7 +135,7 @@ class LegalRequestController extends Controller
                 'notes_text' => $item->notes_text ?? '',
                 'counterparty' => $item->counterparty,
                 'estimated_value' => $item->estimated_value,
-                'attachments' => $item->attachments->map(function ($a) {
+                'attachments' => $item->relationLoaded('attachments') ? $item->attachments->map(function ($a) {
                     return [
                         'id' => (string) $a->id,
                         'request_id' => (string) $a->request_id,
@@ -130,8 +146,8 @@ class LegalRequestController extends Controller
                         'uploaded_by' => $a->uploaded_by,
                         'uploaded_at' => $a->uploaded_at,
                     ];
-                }),
-                'timeline' => $item->timeline->map(function ($t) {
+                }) : [],
+                'timeline' => $item->relationLoaded('timeline') ? $item->timeline->map(function ($t) {
                     return [
                         'id' => (string) $t->id,
                         'request_id' => (string) $t->request_id,
@@ -141,8 +157,8 @@ class LegalRequestController extends Controller
                         'state' => $t->state,
                         'note' => $t->note,
                     ];
-                }),
-                'notes' => $item->notes->map(function ($n) {
+                }) : [],
+                'notes' => $item->relationLoaded('notes') ? $item->notes->map(function ($n) {
                     return [
                         'id' => (string) $n->id,
                         'request_id' => (string) $n->request_id,
@@ -150,8 +166,8 @@ class LegalRequestController extends Controller
                         'created_at' => $n->created_at_str,
                         'body' => $n->body,
                     ];
-                }),
-                'output_documents' => $item->outputDocuments->map(function ($d) {
+                }) : [],
+                'output_documents' => $item->relationLoaded('outputDocuments') ? $item->outputDocuments->map(function ($d) {
                     return [
                         'id' => (string) $d->id,
                         'request_id' => (string) $d->request_id,
@@ -160,8 +176,8 @@ class LegalRequestController extends Controller
                         'doc_type' => $d->doc_type,
                         'issued_at' => $d->issued_at,
                     ];
-                }),
-                'approvals' => $item->approvals->map(function ($app) {
+                }) : [],
+                'approvals' => $item->relationLoaded('approvals') ? $item->approvals->map(function ($app) {
                     return [
                         'id' => (string) $app->id,
                         'request_id' => (string) $app->request_id,
@@ -171,7 +187,7 @@ class LegalRequestController extends Controller
                         'decided_at' => $app->decided_at,
                         'comment' => $app->comment,
                     ];
-                }),
+                }) : [],
                 'created_at' => $item->created_at ? $item->created_at->toISOString() : null,
                 'updated_at' => $item->updated_at ? $item->updated_at->toISOString() : null,
             ];
