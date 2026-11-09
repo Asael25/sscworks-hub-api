@@ -38,10 +38,13 @@ class WorkflowEngine
             });
 
         if ($process) {
-            $query->where('process', $process);
+            $workflow = (clone $query)->where('process', $process)->first();
+            if (!$workflow && $process === 'Revisi Kontrak') {
+                $workflow = (clone $query)->where('process', 'Revisi Kontrak / Addendum')->first();
+            }
+        } else {
+            $workflow = $query->first();
         }
-
-        $workflow = $query->first();
 
         // If not found with process, try matching just the module
         if (!$workflow && $process) {
